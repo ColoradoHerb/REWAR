@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum SessionStatus {
+  active
+  paused
+  finished
+}
+
+enum ControllerType {
+  human
+  ai
+}
+
+enum ResourceCode {
+  food
+  metal
+  fuel
+}
+
+enum UnitTypeCode {
+  infantry
+  artillery
+  armor
+}
+
+enum UnitStatus {
+  idle
+  moving
+  destroyed
+}
+
+enum QueueStatus {
+  queued
+  building
+  completed
+  cancelled
+}
+
+enum MovementOrderStatus {
+  active
+  arrived
+  cancelled
+}
+
+model GameSession {
+  id               String                  @id
+  name             String
+  seedWorldId      String
+  status           SessionStatus           @default(active)
+  humanNationId    String
+  startedAt        DateTime
+  lastResolvedAt   DateTime
+  timeScale        Float                   @default(1)
+  winnerNationId   String?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  nations          Nation[]
+  provinceStates   ProvinceState[]
+  resourceBalances NationResourceBalance[]
+  units            Unit[]
+  productionQueues ProductionQueue[]
+  movementOrders   MovementOrder[]
+}
+
+model Nation {
+  id                String                  @id
+  sessionId         String
+  name              String
+  colorHex          String
+  controllerType    ControllerType
+  capitalProvinceId String
+  isDefeated        Boolean                 @default(false)
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  session           GameSession             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  provinceStates    ProvinceState[]         @relation("ProvinceOwner")
+  resourceBalances  NationResourceBalance[]
+  units             Unit[]
+  productionQueues  ProductionQueue[]
+  movementOrders    MovementOrder[]
+
+  @@index([sessionId])
+}
+
+model ProvinceState {
+  sessionId     String
+  provinceId    String
+  ownerNationId String
+  capturedAt    DateTime
+  session       GameSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  ownerNation   Nation      @relation("ProvinceOwner", fields: [ownerNationId], references: [id], onDelete: Restrict)
+
+  @@id([sessionId, provinceId])
+  @@index([ownerNationId])
+}
+
+model NationResourceBalance {
+  sessionId    String
+  nationId     String
+  resourceCode ResourceCode
+  amount       Int
+  lastSyncedAt DateTime
+  session      GameSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  nation       Nation      @relation(fields: [nationId], references: [id], onDelete: Cascade)
+
+  @@id([sessionId, nationId, resourceCode])
+  @@index([nationId])
+}
+
+model Unit {
+  id              String       @id
+  sessionId       String
+  nationId        String
+  unitTypeCode    UnitTypeCode
+  provinceId      String
+  currentStrength Int
+  status          UnitStatus   @default(idle)
+  createdAt       DateTime     @default(now())
+  session         GameSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  nation          Nation       @relation(fields: [nationId], references: [id], onDelete: Cascade)
+  movementOrders  MovementOrder[]
+
+  @@index([sessionId])
+  @@index([nationId])
+  @@index([provinceId])
+}
+
+model ProductionQueue {
+  id               String       @id
+  sessionId        String
+  nationId         String
+  provinceId       String
+  unitTypeCode     UnitTypeCode
+  status           QueueStatus
+  queuedAt         DateTime
+  startedAt        DateTime
+  completesAt      DateTime
+  costSnapshotJson String
+  session          GameSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  nation           Nation       @relation(fields: [nationId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([nationId])
+  @@index([provinceId])
+}
+
+model MovementOrder {
+  id             String              @id
+  sessionId      String
+  unitId         String
+  nationId       String
+  fromProvinceId String
+  toProvinceId   String
+  issuedAt       DateTime
+  departsAt      DateTime
+  arrivesAt      DateTime
+  travelHours    Float
+  status         MovementOrderStatus
+  session        GameSession         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  unit           Unit                @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  nation         Nation              @relation(fields: [nationId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([unitId])
+  @@index([nationId])
+}

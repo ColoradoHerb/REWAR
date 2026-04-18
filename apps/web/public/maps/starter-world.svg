@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-label="REWAR starter world placeholder map">
+  <rect width="640" height="420" fill="#0f172a" />
+  <g fill="#1e293b" stroke="#94a3b8" stroke-width="2">
+    <rect id="north-fen" x="20" y="20" width="140" height="110" />
+    <rect id="riverbend" x="170" y="20" width="140" height="110" />
+    <rect id="duskfield" x="330" y="20" width="140" height="110" />
+    <rect id="blackharbor" x="480" y="20" width="140" height="110" />
+    <rect id="ironcrest" x="20" y="150" width="140" height="110" />
+    <rect id="stonegate" x="170" y="150" width="140" height="110" />
+    <rect id="emberplain" x="330" y="150" width="140" height="110" />
+    <rect id="northhold" x="480" y="150" width="140" height="110" />
+    <rect id="mossplain" x="20" y="290" width="140" height="110" />
+    <rect id="cold-quarry" x="170" y="290" width="140" height="110" />
+    <rect id="red-mesa" x="330" y="290" width="140" height="110" />
+    <rect id="sunport" x="480" y="290" width="140" height="110" />
+  </g>
+  <line x1="320" y1="10" x2="320" y2="410" stroke="#38bdf8" stroke-dasharray="10 8" stroke-width="3" />
+</svg>
+
