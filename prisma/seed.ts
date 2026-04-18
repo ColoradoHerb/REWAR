@@ -13,7 +13,7 @@ const prisma = new PrismaClient({ adapter });
 const sessionId = 'starter-session';
 const solmereNationId = 'nation-solmere';
 const varkeshNationId = 'nation-varkesh';
-const startedAt = new Date('2026-01-01T00:00:00.000Z');
+const startedAt = new Date();
 
 async function main() {
   await prisma.movementOrder.deleteMany();

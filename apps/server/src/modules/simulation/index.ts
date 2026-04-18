@@ -1,12 +1,179 @@
 import { randomUUID } from 'node:crypto';
-import { resolveCombat } from '@rewar/rules';
-import { UNIT_TYPES } from '@rewar/shared';
+import type { Prisma } from '@prisma/client';
+import {
+  calculateAccruedResources,
+  createIncomeRateByNation,
+  getYieldResourceCodes,
+  resolveCombat,
+} from '@rewar/rules';
+import { STARTER_PROVINCES, UNIT_TYPES } from '@rewar/shared';
 import { prisma } from '../../db/prisma.js';
 
 const unitTypeByCode = new Map(UNIT_TYPES.map((unitType) => [unitType.code, unitType]));
 
+async function accrueEconomyTo(
+  tx: Prisma.TransactionClient,
+  sessionId: string,
+  targetTime: Date,
+  provinces: typeof STARTER_PROVINCES,
+) {
+  const [provinceStates, balances] = await Promise.all([
+    tx.provinceState.findMany({
+      where: { sessionId },
+    }),
+    tx.nationResourceBalance.findMany({
+      where: { sessionId },
+    }),
+  ]);
+
+  if (balances.length === 0) {
+    return false;
+  }
+
+  const incomeRateByNation = createIncomeRateByNation(provinces, provinceStates);
+  let economyChanged = false;
+
+  for (const balance of balances) {
+    const elapsedMs = targetTime.getTime() - balance.lastSyncedAt.getTime();
+
+    if (elapsedMs <= 0) {
+      continue;
+    }
+
+    const ratePerMinute = incomeRateByNation.get(balance.nationId)?.get(balance.resourceCode) ?? 0;
+    const { earned, consumedMs } = calculateAccruedResources(ratePerMinute, elapsedMs);
+
+    if (earned <= 0 || consumedMs <= 0) {
+      continue;
+    }
+
+    economyChanged = true;
+
+    await tx.nationResourceBalance.update({
+      where: {
+        sessionId_nationId_resourceCode: {
+          sessionId: balance.sessionId,
+          nationId: balance.nationId,
+          resourceCode: balance.resourceCode,
+        },
+      },
+      data: {
+        amount: {
+          increment: earned,
+        },
+        lastSyncedAt: new Date(balance.lastSyncedAt.getTime() + consumedMs),
+      },
+    });
+  }
+
+  return economyChanged;
+}
+
+async function resetEconomyBaselinesForCapture(
+  tx: Prisma.TransactionClient,
+  sessionId: string,
+  captureTime: Date,
+  province: (typeof STARTER_PROVINCES)[number],
+  previousOwnerNationId: string | null,
+  nextOwnerNationId: string,
+) {
+  const resourceCodes = getYieldResourceCodes(province.baseYield);
+  const affectedNationIds = new Set(
+    [previousOwnerNationId, nextOwnerNationId].filter((nationId): nationId is string => Boolean(nationId)),
+  );
+
+  for (const nationId of affectedNationIds) {
+    for (const resourceCode of resourceCodes) {
+      await tx.nationResourceBalance.updateMany({
+        where: {
+          sessionId,
+          nationId,
+          resourceCode,
+        },
+        data: {
+          lastSyncedAt: captureTime,
+        },
+      });
+    }
+  }
+}
+
+async function captureProvinceIfNeeded(
+  tx: Prisma.TransactionClient,
+  sessionId: string,
+  provinceId: string,
+  nextOwnerNationId: string,
+  captureTime: Date,
+  provinceById: Map<string, (typeof STARTER_PROVINCES)[number]>,
+) {
+  const province = provinceById.get(provinceId);
+
+  if (!province) {
+    return false;
+  }
+
+  const currentProvinceState = await tx.provinceState.findUnique({
+    where: {
+      sessionId_provinceId: {
+        sessionId,
+        provinceId,
+      },
+    },
+  });
+
+  if (currentProvinceState?.ownerNationId === nextOwnerNationId) {
+    return false;
+  }
+
+  await tx.provinceState.upsert({
+    where: {
+      sessionId_provinceId: {
+        sessionId,
+        provinceId,
+      },
+    },
+    update: {
+      ownerNationId: nextOwnerNationId,
+      capturedAt: captureTime,
+    },
+    create: {
+      sessionId,
+      provinceId,
+      ownerNationId: nextOwnerNationId,
+      capturedAt: captureTime,
+    },
+  });
+
+  await resetEconomyBaselinesForCapture(
+    tx,
+    sessionId,
+    captureTime,
+    province,
+    currentProvinceState?.ownerNationId ?? null,
+    nextOwnerNationId,
+  );
+
+  return true;
+}
+
 export async function resolveSessionToNow(sessionId: string) {
   const now = new Date();
+  const session = await prisma.gameSession.findUnique({
+    where: { id: sessionId },
+    select: {
+      id: true,
+      seedWorldId: true,
+    },
+  });
+
+  if (!session) {
+    return;
+  }
+
+  const provinces = STARTER_PROVINCES.filter((province) => province.mapId === session.seedWorldId);
+  const provinceById = new Map(provinces.map((province) => [province.id, province]));
+  let stateChanged = false;
+
   const dueOrders = await prisma.movementOrder.findMany({
     where: {
       sessionId,
@@ -28,6 +195,10 @@ export async function resolveSessionToNow(sessionId: string) {
         return;
       }
 
+      const resolutionTime = order.arrivesAt;
+      const economyChanged = await accrueEconomyTo(tx, sessionId, resolutionTime, provinces);
+      stateChanged = stateChanged || economyChanged;
+
       const attacker = await tx.unit.findUnique({
         where: { id: order.unitId },
       });
@@ -37,6 +208,7 @@ export async function resolveSessionToNow(sessionId: string) {
           where: { id: order.id },
           data: { status: 'cancelled' },
         });
+        stateChanged = true;
         return;
       }
 
@@ -69,30 +241,21 @@ export async function resolveSessionToNow(sessionId: string) {
           },
         });
 
-        await tx.provinceState.upsert({
-          where: {
-            sessionId_provinceId: {
-              sessionId: order.sessionId,
-              provinceId: order.toProvinceId,
-            },
-          },
-          update: {
-            ownerNationId: order.nationId,
-            capturedAt: now,
-          },
-          create: {
-            sessionId: order.sessionId,
-            provinceId: order.toProvinceId,
-            ownerNationId: order.nationId,
-            capturedAt: now,
-          },
-        });
+        await captureProvinceIfNeeded(
+          tx,
+          sessionId,
+          order.toProvinceId,
+          order.nationId,
+          resolutionTime,
+          provinceById,
+        );
 
         await tx.movementOrder.update({
           where: { id: order.id },
           data: { status: 'arrived' },
         });
 
+        stateChanged = true;
         return;
       }
 
@@ -122,24 +285,14 @@ export async function resolveSessionToNow(sessionId: string) {
           },
         });
 
-        await tx.provinceState.upsert({
-          where: {
-            sessionId_provinceId: {
-              sessionId: order.sessionId,
-              provinceId: order.toProvinceId,
-            },
-          },
-          update: {
-            ownerNationId: order.nationId,
-            capturedAt: now,
-          },
-          create: {
-            sessionId: order.sessionId,
-            provinceId: order.toProvinceId,
-            ownerNationId: order.nationId,
-            capturedAt: now,
-          },
-        });
+        await captureProvinceIfNeeded(
+          tx,
+          sessionId,
+          order.toProvinceId,
+          order.nationId,
+          resolutionTime,
+          provinceById,
+        );
       } else {
         await tx.unit.update({
           where: { id: attacker.id },
@@ -161,8 +314,15 @@ export async function resolveSessionToNow(sessionId: string) {
         where: { id: order.id },
         data: { status: 'arrived' },
       });
+
+      stateChanged = true;
     });
   }
+
+  const economyChangedAtNow = await prisma.$transaction(async (tx) => {
+    return accrueEconomyTo(tx, sessionId, now, provinces);
+  });
+  stateChanged = stateChanged || economyChangedAtNow;
 
   const dueProductionQueues = await prisma.productionQueue.findMany({
     where: {
@@ -201,6 +361,7 @@ export async function resolveSessionToNow(sessionId: string) {
             status: 'cancelled',
           },
         });
+        stateChanged = true;
         return;
       }
 
@@ -229,10 +390,12 @@ export async function resolveSessionToNow(sessionId: string) {
           status: 'completed',
         },
       });
+
+      stateChanged = true;
     });
   }
 
-  if (dueOrders.length > 0 || dueProductionQueues.length > 0) {
+  if (stateChanged) {
     await prisma.gameSession.update({
       where: { id: sessionId },
       data: {

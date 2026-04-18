@@ -217,7 +217,6 @@ async function executeQueueUnitCommand(
           amount: {
             decrement: amount,
           },
-          lastSyncedAt: now,
         },
       });
     }

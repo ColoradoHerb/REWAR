@@ -1,4 +1,5 @@
 import type { NationResourceBalance, ResourceCode, UnitTypeCode, WorldState } from '@rewar/shared';
+import { createIncomeRateByNation } from '@rewar/rules';
 
 type OverviewPanelProps = {
   worldState: WorldState;
@@ -24,6 +25,13 @@ function formatCost(cost: Partial<Record<ResourceCode, number>>) {
     .join(', ');
 }
 
+function formatYieldPerMinute(baseYield: Partial<Record<ResourceCode, number>>) {
+  return Object.entries(baseYield)
+    .filter((entry): entry is [ResourceCode, number] => typeof entry[1] === 'number' && entry[1] > 0)
+    .map(([resourceCode, amount]) => `${resourceCode} +${amount}/min`)
+    .join(', ');
+}
+
 export function OverviewPanel({
   worldState,
   selectedProvinceId,
@@ -38,6 +46,7 @@ export function OverviewPanel({
   const nationById = new Map(worldState.nations.map((nation) => [nation.id, nation]));
   const unitTypeByCode = new Map(worldState.unitTypes.map((unitType) => [unitType.code, unitType]));
   const provinceById = new Map(worldState.provinces.map((province) => [province.id, province]));
+  const incomeRateByNation = createIncomeRateByNation(worldState.provinces, worldState.provinceStates);
   const provinceStateById = new Map(
     worldState.provinceStates.map((provinceState) => [provinceState.provinceId, provinceState]),
   );
@@ -184,6 +193,9 @@ export function OverviewPanel({
               {worldState.resources.map((resource) => (
                 <li key={resource.code}>
                   {resource.name}: {getBalanceAmount(worldState.balances, nation.id, resource.code)}
+                  {nation.id === worldState.session.humanNationId
+                    ? ` (+${incomeRateByNation.get(nation.id)?.get(resource.code) ?? 0}/min)`
+                    : ''}
                 </li>
               ))}
             </ul>
@@ -210,6 +222,7 @@ export function OverviewPanel({
           </p>
           <p>Owner: {selectedOwner?.name ?? 'Unclaimed'}</p>
           <p>Terrain: {selectedProvince.terrainType}</p>
+          <p>Yield: {formatYieldPerMinute(selectedProvince.baseYield) || 'None'}</p>
           <p>Production center: {selectedProvince.isProductionCenter ? 'Yes' : 'No'}</p>
           <p>Units present: {selectedUnits.length}</p>
           <p>Friendly units: {selectedFriendlyUnits.length}</p>
@@ -323,7 +336,7 @@ export function OverviewPanel({
                           <div>
                             <strong>{unitType?.name ?? unit.unitTypeCode}</strong> - {unitNation?.name ?? unit.nationId}
                           </div>
-                          <div>Status: {unit.status} · Strength: {unit.currentStrength}</div>
+                          <div>Status: {unit.status} - Strength: {unit.currentStrength}</div>
                           {activeOrder ? (
                             <div>
                               Moving to {provinceById.get(activeOrder.toProvinceId)?.name ?? activeOrder.toProvinceId}
