@@ -6,7 +6,7 @@ import {
   getYieldResourceCodes,
   resolveCombat,
 } from '@rewar/rules';
-import { STARTER_PROVINCES, UNIT_TYPES } from '@rewar/shared';
+import { PROVINCES, UNIT_TYPES } from '@rewar/shared';
 import { prisma } from '../../db/prisma.js';
 
 const unitTypeByCode = new Map(UNIT_TYPES.map((unitType) => [unitType.code, unitType]));
@@ -15,7 +15,7 @@ async function accrueEconomyTo(
   tx: Prisma.TransactionClient,
   sessionId: string,
   targetTime: Date,
-  provinces: typeof STARTER_PROVINCES,
+  provinces: typeof PROVINCES,
 ) {
   const [provinceStates, balances] = await Promise.all([
     tx.provinceState.findMany({
@@ -73,7 +73,7 @@ async function resetEconomyBaselinesForCapture(
   tx: Prisma.TransactionClient,
   sessionId: string,
   captureTime: Date,
-  province: (typeof STARTER_PROVINCES)[number],
+  province: (typeof PROVINCES)[number],
   previousOwnerNationId: string | null,
   nextOwnerNationId: string,
 ) {
@@ -104,7 +104,7 @@ async function captureProvinceIfNeeded(
   provinceId: string,
   nextOwnerNationId: string,
   captureTime: Date,
-  provinceById: Map<string, (typeof STARTER_PROVINCES)[number]>,
+  provinceById: Map<string, (typeof PROVINCES)[number]>,
 ) {
   const province = provinceById.get(provinceId);
 
@@ -170,7 +170,7 @@ export async function resolveSessionToNow(sessionId: string) {
     return;
   }
 
-  const provinces = STARTER_PROVINCES.filter((province) => province.mapId === session.seedWorldId);
+  const provinces = PROVINCES.filter((province) => province.mapId === session.seedWorldId);
   const provinceById = new Map(provinces.map((province) => [province.id, province]));
   let stateChanged = false;
 

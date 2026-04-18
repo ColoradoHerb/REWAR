@@ -8,8 +8,8 @@ import {
   isAdjacentProvinceMove,
 } from '@rewar/rules';
 import {
-  STARTER_PROVINCES,
-  STARTER_PROVINCE_EDGES,
+  PROVINCES,
+  PROVINCE_EDGES,
   UNIT_TYPES,
   type CommandResponse,
   type GameCommand,
@@ -43,7 +43,7 @@ export async function executeGameCommand(
     throw new CommandExecutionError(404, `Session ${sessionId} was not found.`);
   }
 
-  const availableProvinces = STARTER_PROVINCES.filter((province) => province.mapId === session.seedWorldId);
+  const availableProvinces = PROVINCES.filter((province) => province.mapId === session.seedWorldId);
   const availableProvinceIds = new Set(availableProvinces.map((province) => province.id));
   const provinceById = new Map(availableProvinces.map((province) => [province.id, province]));
 
@@ -95,7 +95,7 @@ async function executeMoveUnitCommand(
     !isAdjacentProvinceMove(
       unit.provinceId,
       command.toProvinceId,
-      STARTER_PROVINCE_EDGES.filter(
+      PROVINCE_EDGES.filter(
         (edge) => availableProvinceIds.has(edge.fromProvinceId) && availableProvinceIds.has(edge.toProvinceId),
       ),
     )
@@ -138,7 +138,7 @@ async function executeQueueUnitCommand(
   sessionId: string,
   humanNationId: string,
   command: Extract<GameCommand, { type: 'QUEUE_UNIT' }>,
-  provinceById: Map<string, (typeof STARTER_PROVINCES)[number]>,
+  provinceById: Map<string, (typeof PROVINCES)[number]>,
 ) {
   const province = provinceById.get(command.provinceId);
 

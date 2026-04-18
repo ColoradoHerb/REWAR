@@ -38,9 +38,12 @@ export interface Province {
   id: Id;
   mapId: string;
   name: string;
+  labelShort?: string;
   shapeKey: string;
   centroidX: number;
   centroidY: number;
+  labelX?: number;
+  labelY?: number;
   terrainType: TerrainType;
   isProductionCenter: boolean;
   buildableUnitTypes: UnitTypeCode[];

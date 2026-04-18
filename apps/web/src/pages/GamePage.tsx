@@ -6,7 +6,11 @@ import { OverviewPanel } from '../components/panels';
 import { fetchWorldState, sendMoveUnitCommand, sendQueueUnitCommand } from '../lib/api/client';
 import { initialUiState, type UiState } from '../lib/state/uiState';
 
-const STARTER_SESSION_ID = 'starter-session';
+const DEFAULT_SESSION_ID = 'starter-session';
+const SESSION_OPTIONS = [
+  { id: 'starter-session', label: 'Starter 12' },
+  { id: 'us48-session', label: 'US 48' },
+] as const;
 const WORLD_POLL_INTERVAL_MS = 1_000;
 const MAX_RECENT_MESSAGES = 6;
 
@@ -109,6 +113,7 @@ function buildCombatMessages(previousWorldState: WorldState | null, nextWorldSta
 }
 
 export function GamePage() {
+  const [sessionId, setSessionId] = useState<string>(DEFAULT_SESSION_ID);
   const [worldState, setWorldState] = useState<WorldState | null>(null);
   const [uiState, setUiState] = useState<UiState>(initialUiState);
   const [recentMessages, setRecentMessages] = useState<string[]>([]);
@@ -126,7 +131,7 @@ export function GamePage() {
     }
 
     try {
-      const nextWorldState = await fetchWorldState(STARTER_SESSION_ID);
+      const nextWorldState = await fetchWorldState(sessionId);
       const previousWorldState = worldStateRef.current;
       const nextCombatMessages = buildCombatMessages(previousWorldState, nextWorldState);
 
@@ -157,7 +162,9 @@ export function GamePage() {
 
           return {
             selectedUnitId: selectedUnit.id,
-            selectedProvinceId: activeOrder?.toProvinceId ?? (hasSelectedProvince ? currentUiState.selectedProvinceId : selectedUnit.provinceId),
+            selectedProvinceId:
+              activeOrder?.toProvinceId ??
+              (hasSelectedProvince ? currentUiState.selectedProvinceId : selectedUnit.provinceId),
           };
         }
 
@@ -167,17 +174,22 @@ export function GamePage() {
         };
       });
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to load starter world.');
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to load world.');
     } finally {
       if (!isBackgroundRefresh) {
         setIsLoading(false);
       }
     }
-  }, []);
+  }, [sessionId]);
 
   useEffect(() => {
+    worldStateRef.current = null;
+    setWorldState(null);
+    setUiState(initialUiState);
+    setRecentMessages([]);
+    setErrorMessage(null);
     void loadWorld();
-  }, [loadWorld]);
+  }, [loadWorld, sessionId]);
 
   useEffect(() => {
     if (!worldState) {
@@ -288,8 +300,38 @@ export function GamePage() {
   return (
     <AppShell>
       <p style={{ marginTop: 0, color: '#cbd5e1' }}>
-        Session: <strong>{worldState?.session.name ?? STARTER_SESSION_ID}</strong>
+        Session: <strong>{worldState?.session.name ?? sessionId}</strong>
       </p>
+
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+        {SESSION_OPTIONS.map((option) => {
+          const isActive = option.id === sessionId;
+
+          return (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => {
+                if (option.id !== sessionId) {
+                  setSessionId(option.id);
+                }
+              }}
+              disabled={isActive}
+              style={{
+                border: '1px solid #475569',
+                borderRadius: 8,
+                background: isActive ? '#1d4ed8' : '#0f172a',
+                color: '#e2e8f0',
+                padding: '8px 12px',
+                cursor: isActive ? 'default' : 'pointer',
+                opacity: isActive ? 1 : 0.9,
+              }}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
 
       {isIssuingMove ? (
         <p style={{ marginTop: 0, color: '#7dd3fc' }}>Issuing movement order...</p>

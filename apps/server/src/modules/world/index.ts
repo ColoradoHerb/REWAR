@@ -1,7 +1,7 @@
 import {
+  PROVINCES,
+  PROVINCE_EDGES,
   RESOURCES,
-  STARTER_PROVINCES,
-  STARTER_PROVINCE_EDGES,
   UNIT_TYPES,
   type MovementOrder,
   type ProductionQueue,
@@ -53,7 +53,7 @@ export async function getWorldState(sessionId: string): Promise<WorldState | nul
     return null;
   }
 
-  const provinces = STARTER_PROVINCES.filter((province) => province.mapId === session.seedWorldId);
+  const provinces = PROVINCES.filter((province) => province.mapId === session.seedWorldId);
   const provinceIds = new Set(provinces.map((province) => province.id));
 
   const productionQueues: ProductionQueue[] = session.productionQueues.map((queue) => ({
@@ -112,7 +112,7 @@ export async function getWorldState(sessionId: string): Promise<WorldState | nul
       ownerNationId: provinceState.ownerNationId,
       capturedAt: toIsoString(provinceState.capturedAt),
     })),
-    edges: STARTER_PROVINCE_EDGES.filter(
+    edges: PROVINCE_EDGES.filter(
       (edge) => provinceIds.has(edge.fromProvinceId) && provinceIds.has(edge.toProvinceId),
     ),
     resources: RESOURCES,
