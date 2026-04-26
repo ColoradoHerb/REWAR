@@ -13,8 +13,7 @@ import { OverviewPanel } from '../components/panels';
 import { createSession, fetchWorldState, sendMoveUnitsCommand, sendQueueUnitCommand } from '../lib/api/client';
 import { initialUiState, type UiState } from '../lib/state/uiState';
 
-const DEFAULT_SESSION_ID = 'starter-session';
-const DEFAULT_SCENARIO_ID = STARTER_WORLD_ID;
+const DEFAULT_SCENARIO_ID = US48_WORLD_ID;
 const SCENARIO_OPTIONS = [
   { id: STARTER_WORLD_ID, label: 'Starter 12' },
   { id: US48_WORLD_ID, label: 'US 48' },
@@ -165,7 +164,7 @@ function buildCombatMessages(previousWorldState: WorldState | null, nextWorldSta
 }
 
 export function GamePage() {
-  const [sessionId, setSessionId] = useState<string>(DEFAULT_SESSION_ID);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [selectedScenarioId, setSelectedScenarioId] = useState<string>(DEFAULT_SCENARIO_ID);
   const [worldState, setWorldState] = useState<WorldState | null>(null);
   const [uiState, setUiState] = useState<UiState>(initialUiState);
@@ -177,9 +176,119 @@ export function GamePage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const worldStateRef = useRef<WorldState | null>(null);
 
-  const loadWorld = useCallback(async (options?: { background?: boolean; sessionId?: string }) => {
+  const applyWorldState = useCallback((nextWorldState: WorldState, previousWorldState: WorldState | null) => {
+    const nextCombatMessages = buildCombatMessages(previousWorldState, nextWorldState);
+
+    worldStateRef.current = nextWorldState;
+    setWorldState(nextWorldState);
+    setSessionId(nextWorldState.session.id);
+    setErrorMessage(null);
+
+    if (nextCombatMessages.length > 0) {
+      setRecentMessages((currentMessages) =>
+        [...nextCombatMessages, ...currentMessages].slice(0, MAX_RECENT_MESSAGES),
+      );
+    }
+
+    setUiState((currentUiState) => {
+      const hasSelectedProvince =
+        currentUiState.selectedProvinceId &&
+        nextWorldState.provinces.some((province) => province.id === currentUiState.selectedProvinceId);
+      const nextSelectedUnits = currentUiState.selectedUnitIds
+        .map((selectedUnitId) =>
+          nextWorldState.units.find((unit) => unit.id === selectedUnitId) ?? null,
+        )
+        .filter(
+          (unit): unit is WorldState['units'][number] =>
+            Boolean(
+              unit &&
+                unit.status === 'idle' &&
+                unit.status !== 'destroyed' &&
+                unit.nationId === nextWorldState.session.humanNationId,
+            ),
+        );
+      const selectedUnitsShareOrigin =
+        nextSelectedUnits.length > 0 &&
+        nextSelectedUnits.every((unit) => unit.provinceId === nextSelectedUnits[0]?.provinceId);
+
+      if (selectedUnitsShareOrigin) {
+        return {
+          selectedUnitIds: nextSelectedUnits.map((unit) => unit.id),
+          selectedProvinceId:
+            hasSelectedProvince && currentUiState.selectedProvinceId === nextSelectedUnits[0]?.provinceId
+              ? currentUiState.selectedProvinceId
+              : nextSelectedUnits[0]?.provinceId ?? null,
+        };
+      }
+
+      return {
+        selectedUnitIds: [],
+        selectedProvinceId: hasSelectedProvince ? currentUiState.selectedProvinceId : null,
+      };
+    });
+  }, []);
+
+  const createFreshSession = useCallback(
+    async ({
+      seedWorldId,
+      replaceSessionId,
+      showLoading = true,
+      showStatus = true,
+    }: {
+      seedWorldId: string;
+      replaceSessionId?: string | null;
+      showLoading?: boolean;
+      showStatus?: boolean;
+    }) => {
+      if (showLoading) {
+        setIsLoading(true);
+      }
+
+      if (showStatus) {
+        setIsCreatingSession(true);
+      }
+
+      try {
+        const nextSession = await createSession({
+          seedWorldId,
+          replaceSessionId: replaceSessionId ?? undefined,
+        });
+
+        worldStateRef.current = null;
+        setRecentMessages([]);
+        setUiState(initialUiState);
+
+        const nextWorldState = await fetchWorldState(nextSession.sessionId);
+        applyWorldState(nextWorldState, null);
+        return nextSession.sessionId;
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Failed to start a fresh session.');
+        return null;
+      } finally {
+        if (showStatus) {
+          setIsCreatingSession(false);
+        }
+
+        if (showLoading) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [applyWorldState],
+  );
+
+  const loadWorld = useCallback(async (options?: { background?: boolean; sessionId?: string; allowRecovery?: boolean }) => {
     const isBackgroundRefresh = options?.background ?? false;
     const targetSessionId = options?.sessionId ?? sessionId;
+
+    if (!targetSessionId) {
+      await createFreshSession({
+        seedWorldId: selectedScenarioId,
+        showLoading: !isBackgroundRefresh,
+        showStatus: !isBackgroundRefresh,
+      });
+      return;
+    }
 
     if (!isBackgroundRefresh) {
       setIsLoading(true);
@@ -187,86 +296,56 @@ export function GamePage() {
 
     try {
       const nextWorldState = await fetchWorldState(targetSessionId);
-      const previousWorldState = worldStateRef.current;
-      const nextCombatMessages = buildCombatMessages(previousWorldState, nextWorldState);
-
-      worldStateRef.current = nextWorldState;
-      setWorldState(nextWorldState);
-      setErrorMessage(null);
-
-      if (nextCombatMessages.length > 0) {
-        setRecentMessages((currentMessages) =>
-          [...nextCombatMessages, ...currentMessages].slice(0, MAX_RECENT_MESSAGES),
-        );
+      applyWorldState(nextWorldState, worldStateRef.current);
+    } catch {
+      if (options?.allowRecovery === false) {
+        setErrorMessage('Failed to load the world.');
+      } else {
+        const recoverySeedWorldId = worldStateRef.current?.session.seedWorldId ?? selectedScenarioId;
+        await createFreshSession({
+          seedWorldId: recoverySeedWorldId,
+          replaceSessionId: targetSessionId,
+          showLoading: !isBackgroundRefresh,
+          showStatus: false,
+        });
       }
-
-      setUiState((currentUiState) => {
-        const hasSelectedProvince =
-          currentUiState.selectedProvinceId &&
-          nextWorldState.provinces.some((province) => province.id === currentUiState.selectedProvinceId);
-        const nextSelectedUnits = currentUiState.selectedUnitIds
-          .map((selectedUnitId) =>
-            nextWorldState.units.find((unit) => unit.id === selectedUnitId) ?? null,
-          )
-          .filter(
-            (unit): unit is WorldState['units'][number] =>
-              Boolean(
-                unit &&
-                  unit.status === 'idle' &&
-                  unit.status !== 'destroyed' &&
-                  unit.nationId === nextWorldState.session.humanNationId,
-              ),
-          );
-        const selectedUnitsShareOrigin =
-          nextSelectedUnits.length > 0 &&
-          nextSelectedUnits.every((unit) => unit.provinceId === nextSelectedUnits[0]?.provinceId);
-
-        if (selectedUnitsShareOrigin) {
-          return {
-            selectedUnitIds: nextSelectedUnits.map((unit) => unit.id),
-            selectedProvinceId:
-              hasSelectedProvince && currentUiState.selectedProvinceId === nextSelectedUnits[0]?.provinceId
-                ? currentUiState.selectedProvinceId
-                : nextSelectedUnits[0]?.provinceId ?? null,
-          };
-        }
-
-        return {
-          selectedUnitIds: [],
-          selectedProvinceId: hasSelectedProvince ? currentUiState.selectedProvinceId : null,
-        };
-      });
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to load world.');
     } finally {
       if (!isBackgroundRefresh) {
         setIsLoading(false);
       }
     }
-  }, [sessionId]);
+  }, [applyWorldState, createFreshSession, selectedScenarioId, sessionId]);
 
   useEffect(() => {
     worldStateRef.current = null;
     setWorldState(null);
+    setSessionId(null);
     setUiState(initialUiState);
     setRecentMessages([]);
     setErrorMessage(null);
-    void loadWorld();
-  }, [loadWorld, sessionId]);
+
+    void createFreshSession({
+      seedWorldId: selectedScenarioId,
+      showLoading: true,
+      showStatus: true,
+    });
+    // intentionally only on initial load
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
-    if (!worldState) {
+    if (!worldState || !sessionId) {
       return undefined;
     }
 
     const pollTimer = window.setInterval(() => {
-      void loadWorld({ background: true });
+      void loadWorld({ background: true, sessionId });
     }, WORLD_POLL_INTERVAL_MS);
 
     return () => {
       window.clearInterval(pollTimer);
     };
-  }, [loadWorld, worldState]);
+  }, [loadWorld, sessionId, worldState]);
 
   const activeUnits = useMemo(
     () => worldState?.units.filter((unit) => unit.status !== 'destroyed') ?? [],
@@ -319,8 +398,7 @@ export function GamePage() {
     [worldState],
   );
   const currentSeedWorldId = worldState?.session.seedWorldId ?? DEFAULT_SCENARIO_ID;
-  const newGameButtonLabel =
-    !worldState || selectedScenarioId !== currentSeedWorldId ? 'New Game' : 'Restart Scenario';
+  const nextScenarioLabel = SCENARIO_OPTIONS.find((option) => option.id === selectedScenarioId)?.label ?? 'US 48';
 
   const handleProvinceSelect = useCallback(
     async (provinceId: string) => {
@@ -471,31 +549,13 @@ export function GamePage() {
   }, []);
 
   const handleCreateOrRestartSession = useCallback(async () => {
-    try {
-      setIsCreatingSession(true);
-      setErrorMessage(null);
-
-      const nextSession = await createSession({
-        seedWorldId: selectedScenarioId,
-        replaceSessionId: sessionId,
-      });
-
-      worldStateRef.current = null;
-      setRecentMessages([]);
-      setUiState(initialUiState);
-
-      if (nextSession.sessionId !== sessionId) {
-        setSessionId(nextSession.sessionId);
-        return;
-      }
-
-      await loadWorld({ sessionId: nextSession.sessionId });
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to create a fresh session.');
-    } finally {
-      setIsCreatingSession(false);
-    }
-  }, [loadWorld, selectedScenarioId, sessionId]);
+    await createFreshSession({
+      seedWorldId: selectedScenarioId,
+      replaceSessionId: sessionId,
+      showLoading: true,
+      showStatus: true,
+    });
+  }, [createFreshSession, selectedScenarioId, sessionId]);
 
   const handleProvinceDoubleClick = useCallback((provinceId: string) => {
     if (!worldState) {
@@ -551,7 +611,7 @@ export function GamePage() {
               Strategic Command
             </div>
             <h2 style={{ margin: 0, fontSize: 24 }}>
-              {worldState?.session.name ?? sessionId}
+              {worldState?.session.name ?? 'Preparing fresh session'}
             </h2>
             <p style={{ margin: '8px 0 0', color: '#94a3b8' }}>
               {humanNation ? `${humanNation.name} operational overview` : 'Loading command data...'}
@@ -662,10 +722,10 @@ export function GamePage() {
             fontWeight: 700,
           }}
         >
-          {isCreatingSession ? 'Resetting...' : newGameButtonLabel}
+          {isCreatingSession ? 'Starting...' : 'New Game'}
         </button>
         <span style={{ color: '#94a3b8', fontSize: 13 }}>
-          Scenario for next fresh start: {SCENARIO_OPTIONS.find((option) => option.id === selectedScenarioId)?.label}
+          Fresh session scenario: {nextScenarioLabel}
         </span>
       </div>
 
@@ -712,7 +772,12 @@ export function GamePage() {
           <button
             type="button"
             onClick={() => {
-              void loadWorld();
+              void createFreshSession({
+                seedWorldId: currentSeedWorldId,
+                replaceSessionId: sessionId,
+                showLoading: true,
+                showStatus: true,
+              });
             }}
             style={{
               border: '1px solid #475569',
@@ -723,7 +788,7 @@ export function GamePage() {
               cursor: 'pointer',
             }}
           >
-            Retry
+            Start Fresh Session
           </button>
         </section>
       ) : null}

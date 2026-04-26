@@ -4,13 +4,15 @@ import { STARTER_WORLD_ID, US48_WORLD_ID } from '@rewar/shared';
 import { createSeededSession } from '../modules/session/index.js';
 
 const createSessionSchema = z.object({
-  seedWorldId: z.enum([STARTER_WORLD_ID, US48_WORLD_ID]),
+  seedWorldId: z.enum([STARTER_WORLD_ID, US48_WORLD_ID]).default(US48_WORLD_ID),
   replaceSessionId: z.string().min(1).optional(),
 });
 
 const sessionsRoutes: FastifyPluginAsync = async (app) => {
   app.post('/api/sessions', async (request, reply) => {
-    const parsedRequest = createSessionSchema.safeParse(request.body);
+    const parsedRequest = createSessionSchema.safeParse(
+      request.body && typeof request.body === 'object' ? request.body : {},
+    );
 
     if (!parsedRequest.success) {
       reply.code(400);
