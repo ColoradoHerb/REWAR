@@ -1,4 +1,9 @@
-import type { WorldState, WorldStateResponse } from '@rewar/shared';
+import type {
+  CreateSessionRequest,
+  CreateSessionResponse,
+  WorldState,
+  WorldStateResponse,
+} from '@rewar/shared';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001';
 
@@ -30,6 +35,24 @@ export async function fetchWorldState(sessionId: string): Promise<WorldState> {
 
   const payload = (await response.json()) as WorldStateResponse;
   return payload.worldState;
+}
+
+export async function createSession(request: CreateSessionRequest) {
+  const response = await fetch(`${API_BASE_URL}/api/sessions`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await getErrorMessage(response, `Session creation failed with status ${response.status}`),
+    );
+  }
+
+  return (await response.json()) as CreateSessionResponse;
 }
 
 export async function sendMoveUnitCommand(sessionId: string, unitId: string, toProvinceId: string) {

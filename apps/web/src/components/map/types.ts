@@ -5,4 +5,5 @@ export type StrategyMapProps = {
   selectedProvinceId: string | null;
   selectedUnitIds: string[];
   onProvinceSelect: (provinceId: string) => void;
+  onProvinceDoubleClick: (provinceId: string) => void;
 };

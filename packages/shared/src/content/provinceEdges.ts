@@ -107,6 +107,8 @@ const us48UndirectedEdges = [
   ['us-ne', 'us-sd'],
   ['us-ne', 'us-wy'],
   ['us-nh', 'us-vt'],
+  ['us-nj', 'us-ny'],
+  ['us-nj', 'us-pa'],
   ['us-nm', 'us-ok'],
   ['us-nm', 'us-tx'],
   ['us-nv', 'us-or'],

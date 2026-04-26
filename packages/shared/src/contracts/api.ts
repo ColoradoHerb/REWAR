@@ -4,6 +4,11 @@ export interface CreateSessionResponse {
   sessionId: Id;
 }
 
+export interface CreateSessionRequest {
+  seedWorldId: string;
+  replaceSessionId?: Id;
+}
+
 export interface WorldStateResponse {
   worldState: WorldState;
 }

@@ -1,6 +1,15 @@
+import { useEffect, useRef, useState } from 'react';
 import { isAdjacentProvinceMove } from '@rewar/rules';
 import type { WorldState } from '@rewar/shared';
 import type { StrategyMapProps } from './types';
+import {
+  ProductionIcon,
+  UnitCounter,
+  WAR_MAP_THEME,
+  getMutedNationFill,
+} from './warMapTheme';
+
+const MAP_DOUBLE_CLICK_DELAY_MS = 210;
 
 function getProvinceFrame(centroidX: number, centroidY: number) {
   return {
@@ -16,7 +25,10 @@ export function StarterWorldMap({
   selectedProvinceId,
   selectedUnitIds,
   onProvinceSelect,
+  onProvinceDoubleClick,
 }: StrategyMapProps) {
+  const [hoveredProvinceId, setHoveredProvinceId] = useState<string | null>(null);
+  const clickTimerRef = useRef<number | null>(null);
   const activeUnits = worldState.units.filter((unit) => unit.status !== 'destroyed');
   const nationById = new Map(worldState.nations.map((nation) => [nation.id, nation]));
   const provinceStateById = new Map(
@@ -30,11 +42,6 @@ export function StarterWorldMap({
     selectedUnits.every((unit) => unit.status === 'idle' && unit.provinceId === selectedUnits[0]?.provinceId)
       ? selectedUnits[0]?.provinceId ?? null
       : null;
-  const activeMovementOrderByUnitId = new Map(
-    worldState.movementOrders
-      .filter((movementOrder) => movementOrder.status === 'active')
-      .map((movementOrder) => [movementOrder.unitId, movementOrder]),
-  );
 
   for (const unit of activeUnits) {
     const units = unitsByProvinceId.get(unit.provinceId) ?? [];
@@ -42,13 +49,64 @@ export function StarterWorldMap({
     unitsByProvinceId.set(unit.provinceId, units);
   }
 
+  useEffect(() => {
+    return () => {
+      if (clickTimerRef.current !== null) {
+        window.clearTimeout(clickTimerRef.current);
+      }
+    };
+  }, []);
+
+  const scheduleProvinceClick = (provinceId: string) => {
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current);
+    }
+
+    clickTimerRef.current = window.setTimeout(() => {
+      clickTimerRef.current = null;
+      onProvinceSelect(provinceId);
+    }, MAP_DOUBLE_CLICK_DELAY_MS);
+  };
+
+  const triggerProvinceDoubleClick = (provinceId: string) => {
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+
+    onProvinceDoubleClick(provinceId);
+  };
+
   return (
-    <section>
-      <h2 style={{ marginTop: 0 }}>Starter World Map</h2>
-      <p style={{ color: '#94a3b8' }}>
-        Select one or more idle friendly units in the province panel, then click an adjacent
-        province to move them.
-      </p>
+    <section
+      style={{
+        border: `1px solid ${WAR_MAP_THEME.panelBorder}`,
+        borderRadius: 16,
+        padding: 18,
+        background:
+          'linear-gradient(180deg, rgba(20,29,38,0.98) 0%, rgba(12,18,25,0.98) 100%)',
+        boxShadow: '0 18px 34px rgba(2, 6, 23, 0.32)',
+      }}
+    >
+      <div style={{ marginBottom: 14 }}>
+        <div
+          style={{
+            fontSize: 12,
+            textTransform: 'uppercase',
+            letterSpacing: 1.6,
+            color: '#9fb0be',
+            marginBottom: 6,
+          }}
+        >
+          Strategic Theater
+        </div>
+        <h2 style={{ margin: 0, fontSize: 24 }}>Starter World</h2>
+        <p style={{ color: '#94a3b8', marginBottom: 0, marginTop: 8 }}>
+          Select one or more idle friendly units in the province panel, then click an adjacent
+          highlighted province to move them. Double-click a province to select all idle friendly
+          units there.
+        </p>
+      </div>
 
       <svg
         viewBox="0 0 640 420"
@@ -57,12 +115,20 @@ export function StarterWorldMap({
         style={{
           width: '100%',
           maxWidth: 720,
-          border: '1px solid #334155',
-          borderRadius: 12,
-          background: '#0f172a',
+          border: `1px solid ${WAR_MAP_THEME.panelBorder}`,
+          borderRadius: 14,
+          background: WAR_MAP_THEME.background,
         }}
       >
-        <rect width="640" height="420" fill="#0f172a" />
+        <defs>
+          <pattern id="starter-war-grid" width="20" height="20" patternUnits="userSpaceOnUse">
+            <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#23303d" strokeWidth="0.9" opacity="0.3" />
+            <path d="M 0 20 L 20 0" fill="none" stroke="#17212b" strokeWidth="0.8" opacity="0.22" />
+          </pattern>
+        </defs>
+
+        <rect width="640" height="420" fill={WAR_MAP_THEME.background} />
+        <rect width="640" height="420" fill="url(#starter-war-grid)" opacity={0.5} />
 
         {worldState.provinces.map((province) => {
           const provinceState = provinceStateById.get(province.id);
@@ -74,9 +140,37 @@ export function StarterWorldMap({
             selectedGroupOriginProvinceId &&
             selectedGroupOriginProvinceId !== province.id &&
             isAdjacentProvinceMove(selectedGroupOriginProvinceId, province.id, worldState.edges);
+          const isHoveredProvince = hoveredProvinceId === province.id;
+          const provinceFill = getMutedNationFill(ownerNation);
+          const provinceStroke = isSelectedProvince
+            ? WAR_MAP_THEME.selectedOutline
+            : isAdjacentTarget
+              ? WAR_MAP_THEME.moveOutline
+              : isHoveredProvince
+                ? WAR_MAP_THEME.hoverOutline
+                : WAR_MAP_THEME.stateInnerBorder;
+          const hasSelectedUnitsInProvince = provinceUnits.some((unit) => selectedUnitIdSet.has(unit.id));
+          const unitNationIds = new Set(provinceUnits.map((unit) => unit.nationId));
+          const unitNation =
+            unitNationIds.size === 1 ? nationById.get(provinceUnits[0]?.nationId ?? '') ?? ownerNation : ownerNation;
 
           return (
             <g key={province.id}>
+              {isSelectedProvince ? (
+                <rect
+                  x={x - 3}
+                  y={y - 3}
+                  width={width + 6}
+                  height={height + 6}
+                  rx={10}
+                  ry={10}
+                  fill="none"
+                  stroke={WAR_MAP_THEME.selectedGlow}
+                  strokeWidth={5}
+                  opacity={0.26}
+                  pointerEvents="none"
+                />
+              ) : null}
               <rect
                 id={province.shapeKey}
                 x={x}
@@ -85,21 +179,31 @@ export function StarterWorldMap({
                 height={height}
                 rx={8}
                 ry={8}
-                fill={ownerNation?.colorHex ?? '#1e293b'}
-                fillOpacity={ownerNation ? 0.86 : 1}
-                stroke={isSelectedProvince ? '#f8fafc' : isAdjacentTarget ? '#38bdf8' : '#94a3b8'}
-                strokeWidth={isSelectedProvince ? 4 : isAdjacentTarget ? 3 : 2}
+                fill={provinceFill}
+                fillOpacity={isHoveredProvince ? 0.96 : ownerNation ? 0.9 : 1}
+                stroke={provinceStroke}
+                strokeWidth={isSelectedProvince ? 4 : isAdjacentTarget ? 3 : isHoveredProvince ? 2.6 : 2}
+                strokeDasharray={isAdjacentTarget ? '8 5' : undefined}
                 style={{ cursor: 'pointer' }}
-                onClick={() => onProvinceSelect(province.id)}
+                onMouseEnter={() => setHoveredProvinceId(province.id)}
+                onMouseLeave={() => setHoveredProvinceId((currentHoveredProvinceId) =>
+                  currentHoveredProvinceId === province.id ? null : currentHoveredProvinceId,
+                )}
+                onClick={() => scheduleProvinceClick(province.id)}
+                onDoubleClick={() => triggerProvinceDoubleClick(province.id)}
               />
               <title>{province.name}</title>
               <text
                 x={province.centroidX}
                 y={province.centroidY - 8}
                 textAnchor="middle"
-                fill="#f8fafc"
+                fill={WAR_MAP_THEME.labelFill}
                 fontSize="14"
-                fontWeight="700"
+                fontWeight="800"
+                letterSpacing={0.2}
+                stroke={WAR_MAP_THEME.labelStroke}
+                strokeWidth="3"
+                paintOrder="stroke"
                 pointerEvents="none"
               >
                 {province.name}
@@ -108,77 +212,31 @@ export function StarterWorldMap({
                 x={province.centroidX}
                 y={province.centroidY + 12}
                 textAnchor="middle"
-                fill="#cbd5e1"
+                fill="#d0dae4"
                 fontSize="11"
+                fontWeight="600"
+                stroke={WAR_MAP_THEME.labelStroke}
+                strokeWidth="2.2"
+                paintOrder="stroke"
                 pointerEvents="none"
               >
                 {ownerNation?.name ?? 'Unclaimed'}
               </text>
 
-              {provinceUnits.length > 1 ? (
-                <g pointerEvents="none">
-                  <circle
-                    cx={x + width - 16}
-                    cy={y + 16}
-                    r={12}
-                    fill="#020617"
-                    stroke="#e2e8f0"
-                    strokeWidth={2}
-                  />
-                  <text
-                    x={x + width - 16}
-                    y={y + 20}
-                    textAnchor="middle"
-                    fill="#e2e8f0"
-                    fontSize="11"
-                    fontWeight="700"
-                  >
-                    {provinceUnits.length}
-                  </text>
-                </g>
+              {province.isProductionCenter ? (
+                <ProductionIcon x={x + width - 18} y={y + 18} scale={0.95} />
               ) : null}
 
-              {provinceUnits.map((unit, index) => {
-                const unitNation = nationById.get(unit.nationId);
-                const markerOffset = (index - (provinceUnits.length - 1) / 2) * 18;
-                const isSelectedUnit = selectedUnitIdSet.has(unit.id);
-                const activeOrder = activeMovementOrderByUnitId.get(unit.id);
-
-                return (
-                  <g key={unit.id} pointerEvents="none">
-                    <circle
-                      cx={province.centroidX + markerOffset}
-                      cy={province.centroidY + 34}
-                      r={isSelectedUnit ? 12 : 10}
-                      fill={unitNation?.colorHex ?? '#e2e8f0'}
-                      stroke={isSelectedUnit ? '#f8fafc' : '#020617'}
-                      strokeWidth={isSelectedUnit ? 3 : 2}
-                    />
-                    <text
-                      x={province.centroidX + markerOffset}
-                      y={province.centroidY + 38}
-                      textAnchor="middle"
-                      fill="#020617"
-                      fontSize="10"
-                      fontWeight="700"
-                    >
-                      {unit.status === 'moving' ? 'M' : unit.unitTypeCode.slice(0, 1).toUpperCase()}
-                    </text>
-                    {activeOrder ? (
-                      <text
-                        x={province.centroidX + markerOffset}
-                        y={province.centroidY + 56}
-                        textAnchor="middle"
-                        fill="#7dd3fc"
-                        fontSize="10"
-                        fontWeight="700"
-                      >
-                        To {activeOrder.toProvinceId}
-                      </text>
-                    ) : null}
-                  </g>
-                );
-              })}
+              {provinceUnits.length > 0 ? (
+                <UnitCounter
+                  x={province.centroidX}
+                  y={province.centroidY + 38}
+                  units={provinceUnits}
+                  nation={unitNation}
+                  isSelected={hasSelectedUnitsInProvince}
+                  scale={1.12}
+                />
+              ) : null}
             </g>
           );
         })}
@@ -188,9 +246,10 @@ export function StarterWorldMap({
           y1="10"
           x2="320"
           y2="410"
-          stroke="#38bdf8"
+          stroke={WAR_MAP_THEME.moveOutline}
           strokeDasharray="10 8"
-          strokeWidth="3"
+          strokeWidth="2.6"
+          opacity={0.75}
           pointerEvents="none"
         />
       </svg>
