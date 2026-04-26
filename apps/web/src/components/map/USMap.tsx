@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { isAdjacentProvinceMove } from '@rewar/rules';
 import type { WorldState } from '@rewar/shared';
-import { US48_BORDER_PATHS, US48_STATE_PATHS, US48_SVG_VIEWBOX } from './us48SvgData';
+import { US48_BORDER_PATHS, US48_STATE_PATHS } from './us48SvgData';
+import { MapViewport } from './MapViewport';
 import type { StrategyMapProps } from './types';
 import {
   ProductionIcon,
@@ -231,179 +232,195 @@ export function USMap({
         </div>
         <h2 style={{ margin: 0, fontSize: 24 }}>Contiguous United States</h2>
         <p style={{ color: '#94a3b8', marginBottom: 0, marginTop: 8 }}>
-          Click a state to inspect it. Select one or more idle friendly units, then click an
-          adjacent highlighted state to move them. Double-click a state to select all idle friendly
-          units there.
+          Click a state to inspect it. Use the mouse wheel to zoom and drag to pan. Select one or
+          more idle friendly units, then click an adjacent highlighted state to move them.
+          Double-click a state to select all idle friendly units there.
         </p>
       </div>
 
-      <svg
-        viewBox={US48_SVG_VIEWBOX}
-        role="img"
-        aria-label="REWAR United States map"
-        style={{
-          width: '100%',
-          maxWidth: 1080,
-          border: `1px solid ${WAR_MAP_THEME.panelBorder}`,
-          borderRadius: 14,
-          background: WAR_MAP_THEME.background,
-        }}
+      <MapViewport
+        ariaLabel="REWAR United States map"
+        baseViewBox={{ x: 0, y: 0, width: 959, height: 593 }}
+        maxWidth={1080}
+        resetKey={worldState.session.id}
       >
-        <defs>
-          <pattern id="us48-war-grid" width="18" height="18" patternUnits="userSpaceOnUse">
-            <path d="M 18 0 L 0 0 0 18" fill="none" stroke="#23303d" strokeWidth="0.8" opacity="0.3" />
-            <path d="M 0 18 L 18 0" fill="none" stroke="#17212b" strokeWidth="0.8" opacity="0.22" />
-          </pattern>
-        </defs>
-
-        <rect width="959" height="593" fill={WAR_MAP_THEME.background} />
-        <rect width="959" height="593" fill="url(#us48-war-grid)" opacity={0.5} />
-
-        <g aria-label="state fills">
-          {provinceRenderData.map((renderData) => (
-            <g key={renderData.province.id}>
-              {renderData.isSelectedProvince ? (
-                <path
-                  d={renderData.pathData}
-                  fill="none"
-                  stroke={WAR_MAP_THEME.selectedGlow}
-                  strokeWidth={6}
-                  opacity={0.3}
-                  pointerEvents="none"
-                />
-              ) : null}
-              <path
-                id={renderData.province.shapeKey}
-                d={renderData.pathData}
-                fill={renderData.provinceFill}
-                fillOpacity={renderData.provinceOpacity}
-                stroke={renderData.provinceStroke}
-                strokeWidth={renderData.provinceStrokeWidth}
-                strokeDasharray={renderData.isAdjacentTarget ? '7 4' : undefined}
-                style={{ cursor: 'pointer' }}
-                onMouseEnter={() => setHoveredProvinceId(renderData.province.id)}
-                onMouseLeave={() => setHoveredProvinceId((currentHoveredProvinceId) =>
-                  currentHoveredProvinceId === renderData.province.id ? null : currentHoveredProvinceId,
-                )}
-                onClick={() => scheduleProvinceClick(renderData.province.id)}
-                onDoubleClick={() => triggerProvinceDoubleClick(renderData.province.id)}
-              />
-              <title>{renderData.province.name}</title>
-            </g>
-          ))}
-        </g>
-
-        <g pointerEvents="none">
-          {US48_BORDER_PATHS.map((pathData, index) => (
-            <path
-              key={`${pathData.slice(0, 24)}-${index}`}
-              d={pathData}
-              fill="none"
-              stroke={WAR_MAP_THEME.stateInnerBorder}
-              strokeWidth={0.9}
-            />
-          ))}
-        </g>
-
-        <g pointerEvents="none" aria-label="state labels">
-          {provinceRenderData.map((renderData) => (
-            <text
-              key={`label-${renderData.province.id}`}
-              x={renderData.province.labelX ?? renderData.province.centroidX}
-              y={renderData.province.labelY ?? renderData.province.centroidY}
-              textAnchor="middle"
-              fill={WAR_MAP_THEME.labelFill}
-              fontSize={SMALL_LABEL_PROVINCE_IDS.has(renderData.province.id) ? 10 : 12}
-              fontWeight="800"
-              letterSpacing={0.8}
-              stroke={WAR_MAP_THEME.labelStroke}
-              strokeWidth="3.4"
-              paintOrder="stroke"
-            >
-              {getProvinceLabel(renderData.province)}
-            </text>
-          ))}
-        </g>
-
-        <g aria-label="production markers">
-          {provinceRenderData.map((renderData) =>
-            renderData.province.isProductionCenter ? (
-              <g
-                key={`production-${renderData.province.id}`}
-                role="img"
-                aria-label={`Production Center: ${renderData.province.name}`}
-                style={{ cursor: 'pointer' }}
-                onMouseEnter={() => setHoveredProvinceId(renderData.province.id)}
-                onMouseLeave={() => setHoveredProvinceId((currentHoveredProvinceId) =>
-                  currentHoveredProvinceId === renderData.province.id ? null : currentHoveredProvinceId,
-                )}
-                onClick={() => scheduleProvinceClick(renderData.province.id)}
-                onDoubleClick={() => triggerProvinceDoubleClick(renderData.province.id)}
-              >
-                <title>{`Production Center: ${renderData.province.name}`}</title>
-                <circle
-                  cx={renderData.productionX}
-                  cy={renderData.productionY}
-                  r={10 * renderData.productionScale}
-                  fill="rgba(0, 0, 0, 0)"
-                />
-                <ProductionIcon
-                  x={renderData.productionX}
-                  y={renderData.productionY}
-                  scale={renderData.productionScale}
-                />
-              </g>
-            ) : null,
-          )}
-        </g>
-
-        <g pointerEvents="none" aria-label="unit counters">
-          {provinceRenderData.map((renderData) =>
-            renderData.provinceUnits.length > 0 ? (
-              <UnitCounter
-                key={`counter-${renderData.province.id}`}
-                x={renderData.counterX}
-                y={renderData.counterY}
-                units={renderData.provinceUnits}
-                nation={renderData.unitNation ?? renderData.ownerNation}
-                isSelected={renderData.hasSelectedUnitsInProvince}
-                scale={renderData.counterScale}
-              />
-            ) : null,
-          )}
-        </g>
-
-        <g aria-label="small state hit targets">
-          {provinceRenderData.map((renderData) => {
-            if (!renderData.hitTarget) {
-              return null;
+        {({ shouldIgnoreMapClick }) => {
+          const handleProvinceClick = (provinceId: string) => {
+            if (shouldIgnoreMapClick()) {
+              return;
             }
 
-            const { x, y, width, height, radius = 12 } = renderData.hitTarget;
+            scheduleProvinceClick(provinceId);
+          };
 
-            return (
-              <rect
-                key={`hit-target-${renderData.province.id}`}
-                x={x - width / 2}
-                y={y - height / 2}
-                width={width}
-                height={height}
-                rx={radius}
-                ry={radius}
-                fill="rgba(0, 0, 0, 0)"
-                pointerEvents="all"
-                style={{ cursor: 'pointer' }}
-                onMouseEnter={() => setHoveredProvinceId(renderData.province.id)}
-                onMouseLeave={() => setHoveredProvinceId((currentHoveredProvinceId) =>
-                  currentHoveredProvinceId === renderData.province.id ? null : currentHoveredProvinceId,
+          const handleProvinceDoubleClick = (provinceId: string) => {
+            if (shouldIgnoreMapClick()) {
+              return;
+            }
+
+            triggerProvinceDoubleClick(provinceId);
+          };
+
+          return (
+            <>
+              <defs>
+                <pattern id="us48-war-grid" width="18" height="18" patternUnits="userSpaceOnUse">
+                  <path d="M 18 0 L 0 0 0 18" fill="none" stroke="#23303d" strokeWidth="0.8" opacity="0.3" />
+                  <path d="M 0 18 L 18 0" fill="none" stroke="#17212b" strokeWidth="0.8" opacity="0.22" />
+                </pattern>
+              </defs>
+
+              <rect width="959" height="593" fill={WAR_MAP_THEME.background} />
+              <rect width="959" height="593" fill="url(#us48-war-grid)" opacity={0.5} />
+
+              <g aria-label="state fills">
+                {provinceRenderData.map((renderData) => (
+                  <g key={renderData.province.id}>
+                    {renderData.isSelectedProvince ? (
+                      <path
+                        d={renderData.pathData}
+                        fill="none"
+                        stroke={WAR_MAP_THEME.selectedGlow}
+                        strokeWidth={6}
+                        opacity={0.3}
+                        pointerEvents="none"
+                      />
+                    ) : null}
+                    <path
+                      id={renderData.province.shapeKey}
+                      d={renderData.pathData}
+                      fill={renderData.provinceFill}
+                      fillOpacity={renderData.provinceOpacity}
+                      stroke={renderData.provinceStroke}
+                      strokeWidth={renderData.provinceStrokeWidth}
+                      strokeDasharray={renderData.isAdjacentTarget ? '7 4' : undefined}
+                      style={{ cursor: 'pointer' }}
+                      onMouseEnter={() => setHoveredProvinceId(renderData.province.id)}
+                      onMouseLeave={() => setHoveredProvinceId((currentHoveredProvinceId) =>
+                        currentHoveredProvinceId === renderData.province.id ? null : currentHoveredProvinceId,
+                      )}
+                      onClick={() => handleProvinceClick(renderData.province.id)}
+                      onDoubleClick={() => handleProvinceDoubleClick(renderData.province.id)}
+                    />
+                    <title>{renderData.province.name}</title>
+                  </g>
+                ))}
+              </g>
+
+              <g pointerEvents="none">
+                {US48_BORDER_PATHS.map((pathData, index) => (
+                  <path
+                    key={`${pathData.slice(0, 24)}-${index}`}
+                    d={pathData}
+                    fill="none"
+                    stroke={WAR_MAP_THEME.stateInnerBorder}
+                    strokeWidth={0.9}
+                  />
+                ))}
+              </g>
+
+              <g pointerEvents="none" aria-label="state labels">
+                {provinceRenderData.map((renderData) => (
+                  <text
+                    key={`label-${renderData.province.id}`}
+                    x={renderData.province.labelX ?? renderData.province.centroidX}
+                    y={renderData.province.labelY ?? renderData.province.centroidY}
+                    textAnchor="middle"
+                    fill={WAR_MAP_THEME.labelFill}
+                    fontSize={SMALL_LABEL_PROVINCE_IDS.has(renderData.province.id) ? 10 : 12}
+                    fontWeight="800"
+                    letterSpacing={0.8}
+                    stroke={WAR_MAP_THEME.labelStroke}
+                    strokeWidth="3.4"
+                    paintOrder="stroke"
+                  >
+                    {getProvinceLabel(renderData.province)}
+                  </text>
+                ))}
+              </g>
+
+              <g aria-label="production markers">
+                {provinceRenderData.map((renderData) =>
+                  renderData.province.isProductionCenter ? (
+                    <g
+                      key={`production-${renderData.province.id}`}
+                      role="img"
+                      aria-label={`Production Center: ${renderData.province.name}`}
+                      style={{ cursor: 'pointer' }}
+                      onMouseEnter={() => setHoveredProvinceId(renderData.province.id)}
+                      onMouseLeave={() => setHoveredProvinceId((currentHoveredProvinceId) =>
+                        currentHoveredProvinceId === renderData.province.id ? null : currentHoveredProvinceId,
+                      )}
+                      onClick={() => handleProvinceClick(renderData.province.id)}
+                      onDoubleClick={() => handleProvinceDoubleClick(renderData.province.id)}
+                    >
+                      <title>{`Production Center: ${renderData.province.name}`}</title>
+                      <circle
+                        cx={renderData.productionX}
+                        cy={renderData.productionY}
+                        r={10 * renderData.productionScale}
+                        fill="rgba(0, 0, 0, 0)"
+                      />
+                      <ProductionIcon
+                        x={renderData.productionX}
+                        y={renderData.productionY}
+                        scale={renderData.productionScale}
+                      />
+                    </g>
+                  ) : null,
                 )}
-                onClick={() => scheduleProvinceClick(renderData.province.id)}
-                onDoubleClick={() => triggerProvinceDoubleClick(renderData.province.id)}
-              />
-            );
-          })}
-        </g>
-      </svg>
+              </g>
+
+              <g pointerEvents="none" aria-label="unit counters">
+                {provinceRenderData.map((renderData) =>
+                  renderData.provinceUnits.length > 0 ? (
+                    <UnitCounter
+                      key={`counter-${renderData.province.id}`}
+                      x={renderData.counterX}
+                      y={renderData.counterY}
+                      units={renderData.provinceUnits}
+                      nation={renderData.unitNation ?? renderData.ownerNation}
+                      isSelected={renderData.hasSelectedUnitsInProvince}
+                      scale={renderData.counterScale}
+                    />
+                  ) : null,
+                )}
+              </g>
+
+              <g aria-label="small state hit targets">
+                {provinceRenderData.map((renderData) => {
+                  if (!renderData.hitTarget) {
+                    return null;
+                  }
+
+                  const { x, y, width, height, radius = 12 } = renderData.hitTarget;
+
+                  return (
+                    <rect
+                      key={`hit-target-${renderData.province.id}`}
+                      x={x - width / 2}
+                      y={y - height / 2}
+                      width={width}
+                      height={height}
+                      rx={radius}
+                      ry={radius}
+                      fill="rgba(0, 0, 0, 0)"
+                      pointerEvents="all"
+                      style={{ cursor: 'pointer' }}
+                      onMouseEnter={() => setHoveredProvinceId(renderData.province.id)}
+                      onMouseLeave={() => setHoveredProvinceId((currentHoveredProvinceId) =>
+                        currentHoveredProvinceId === renderData.province.id ? null : currentHoveredProvinceId,
+                      )}
+                      onClick={() => handleProvinceClick(renderData.province.id)}
+                      onDoubleClick={() => handleProvinceDoubleClick(renderData.province.id)}
+                    />
+                  );
+                })}
+              </g>
+            </>
+          );
+        }}
+      </MapViewport>
     </section>
   );
 }
