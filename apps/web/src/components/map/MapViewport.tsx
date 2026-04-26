@@ -6,6 +6,9 @@ const MAX_ZOOM_LEVEL = 3;
 const DRAG_THRESHOLD_PX = 4;
 const CLICK_SUPPRESSION_MS = 220;
 
+export const MAP_LOW_ZOOM_THRESHOLD = 1.15;
+export const MAP_HIGH_ZOOM_THRESHOLD = 1.75;
+
 type ViewBox = {
   x: number;
   y: number;
@@ -24,7 +27,7 @@ type DragState = {
 type MapViewportProps = {
   ariaLabel: string;
   baseViewBox: ViewBox;
-  children: (helpers: { shouldIgnoreMapClick: () => boolean }) => ReactNode;
+  children: (helpers: { shouldIgnoreMapClick: () => boolean; zoomLevel: number }) => ReactNode;
   maxWidth?: number;
   resetKey?: string;
 };
@@ -80,6 +83,7 @@ export function MapViewport({
   }, [baseViewBox.height, baseViewBox.width, baseViewBox.x, baseViewBox.y, resetKey]);
 
   const shouldIgnoreMapClick = () => performance.now() < suppressClickUntilRef.current;
+  const zoomLevel = baseViewBox.width / viewBox.width;
 
   const handleWheelZoom = useCallback((event: Pick<WheelEvent, 'clientX' | 'clientY' | 'deltaY' | 'preventDefault'>) => {
     const svg = svgRef.current;
@@ -269,7 +273,7 @@ export function MapViewport({
           background: WAR_MAP_THEME.background,
         }}
       >
-        {children({ shouldIgnoreMapClick })}
+        {children({ shouldIgnoreMapClick, zoomLevel })}
       </svg>
     </div>
   );

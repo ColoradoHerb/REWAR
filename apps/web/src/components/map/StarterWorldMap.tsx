@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { isAdjacentProvinceMove } from '@rewar/rules';
 import type { WorldState } from '@rewar/shared';
-import { MapViewport } from './MapViewport';
+import { MAP_HIGH_ZOOM_THRESHOLD, MAP_LOW_ZOOM_THRESHOLD, MapViewport } from './MapViewport';
 import type { StrategyMapProps } from './types';
 import {
   ProductionIcon,
@@ -11,6 +11,28 @@ import {
 } from './warMapTheme';
 
 const MAP_DOUBLE_CLICK_DELAY_MS = 210;
+
+function clamp01(value: number) {
+  return Math.max(0, Math.min(1, value));
+}
+
+function getCounterZoomScale(zoomLevel: number) {
+  if (zoomLevel <= MAP_LOW_ZOOM_THRESHOLD) {
+    return 1.06;
+  }
+
+  if (zoomLevel <= MAP_HIGH_ZOOM_THRESHOLD) {
+    const transitionProgress = clamp01(
+      (zoomLevel - MAP_LOW_ZOOM_THRESHOLD) /
+        (MAP_HIGH_ZOOM_THRESHOLD - MAP_LOW_ZOOM_THRESHOLD),
+    );
+
+    return 1.06 - transitionProgress * 0.16;
+  }
+
+  const highZoomProgress = clamp01((zoomLevel - MAP_HIGH_ZOOM_THRESHOLD) / (3 - MAP_HIGH_ZOOM_THRESHOLD));
+  return 0.9 - highZoomProgress * 0.14;
+}
 
 function getProvinceFrame(centroidX: number, centroidY: number) {
   return {
@@ -115,7 +137,7 @@ export function StarterWorldMap({
         maxWidth={720}
         resetKey={worldState.session.id}
       >
-        {({ shouldIgnoreMapClick }) => {
+        {({ shouldIgnoreMapClick, zoomLevel }) => {
           const handleProvinceClick = (provinceId: string) => {
             if (shouldIgnoreMapClick()) {
               return;
@@ -131,6 +153,15 @@ export function StarterWorldMap({
 
             triggerProvinceDoubleClick(provinceId);
           };
+
+          const detailProgress = clamp01(
+            (zoomLevel - MAP_LOW_ZOOM_THRESHOLD) /
+              (MAP_HIGH_ZOOM_THRESHOLD - MAP_LOW_ZOOM_THRESHOLD),
+          );
+          const ownerLabelOpacity = detailProgress;
+          const centerDotOpacity = clamp01((zoomLevel - 1.35) / 0.35);
+          const counterZoomScale = getCounterZoomScale(zoomLevel);
+          const provinceNameFontSize = 14 + detailProgress * 1.5;
 
           return (
             <>
@@ -214,13 +245,14 @@ export function StarterWorldMap({
                       y={province.centroidY - 8}
                       textAnchor="middle"
                       fill={WAR_MAP_THEME.labelFill}
-                      fontSize="14"
+                      fontSize={provinceNameFontSize}
                       fontWeight="800"
                       letterSpacing={0.2}
                       stroke={WAR_MAP_THEME.labelStroke}
                       strokeWidth="3"
                       paintOrder="stroke"
                       pointerEvents="none"
+                      style={{ transition: 'font-size 140ms ease' }}
                     >
                       {province.name}
                     </text>
@@ -235,9 +267,34 @@ export function StarterWorldMap({
                       strokeWidth="2.2"
                       paintOrder="stroke"
                       pointerEvents="none"
+                      opacity={ownerLabelOpacity}
+                      style={{ transition: 'opacity 140ms ease' }}
                     >
                       {ownerNation?.name ?? 'Unclaimed'}
                     </text>
+
+                    <g
+                      pointerEvents="none"
+                      opacity={centerDotOpacity}
+                      style={{ transition: 'opacity 140ms ease' }}
+                    >
+                      <circle
+                        cx={province.centroidX}
+                        cy={province.centroidY}
+                        r={4}
+                        fill="#d8c9a2"
+                        opacity={0.8}
+                      />
+                      <circle
+                        cx={province.centroidX}
+                        cy={province.centroidY}
+                        r={6.6}
+                        fill="none"
+                        stroke="#171e26"
+                        strokeWidth={1.3}
+                        opacity={0.66}
+                      />
+                    </g>
 
                     {province.isProductionCenter ? (
                       <ProductionIcon x={x + width - 18} y={y + 18} scale={0.95} />
@@ -250,7 +307,7 @@ export function StarterWorldMap({
                         units={provinceUnits}
                         nation={unitNation}
                         isSelected={hasSelectedUnitsInProvince}
-                        scale={1.12}
+                        scale={1.12 * counterZoomScale}
                       />
                     ) : null}
                   </g>

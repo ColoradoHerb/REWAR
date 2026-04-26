@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { isAdjacentProvinceMove } from '@rewar/rules';
 import type { WorldState } from '@rewar/shared';
 import { US48_BORDER_PATHS, US48_STATE_PATHS } from './us48SvgData';
-import { MapViewport } from './MapViewport';
+import { MAP_HIGH_ZOOM_THRESHOLD, MAP_LOW_ZOOM_THRESHOLD, MapViewport } from './MapViewport';
 import type { StrategyMapProps } from './types';
 import {
   ProductionIcon,
@@ -86,6 +86,28 @@ const MAP_DOUBLE_CLICK_DELAY_MS = 210;
 
 function getProvinceLabel(province: WorldState['provinces'][number]) {
   return province.labelShort ?? province.name.slice(0, 2).toUpperCase();
+}
+
+function clamp01(value: number) {
+  return Math.max(0, Math.min(1, value));
+}
+
+function getCounterZoomScale(zoomLevel: number) {
+  if (zoomLevel <= MAP_LOW_ZOOM_THRESHOLD) {
+    return 1.06;
+  }
+
+  if (zoomLevel <= MAP_HIGH_ZOOM_THRESHOLD) {
+    const transitionProgress = clamp01(
+      (zoomLevel - MAP_LOW_ZOOM_THRESHOLD) /
+        (MAP_HIGH_ZOOM_THRESHOLD - MAP_LOW_ZOOM_THRESHOLD),
+    );
+
+    return 1.06 - transitionProgress * 0.18;
+  }
+
+  const highZoomProgress = clamp01((zoomLevel - MAP_HIGH_ZOOM_THRESHOLD) / (3 - MAP_HIGH_ZOOM_THRESHOLD));
+  return 0.88 - highZoomProgress * 0.16;
 }
 
 export function USMap({
@@ -244,7 +266,7 @@ export function USMap({
         maxWidth={1080}
         resetKey={worldState.session.id}
       >
-        {({ shouldIgnoreMapClick }) => {
+        {({ shouldIgnoreMapClick, zoomLevel }) => {
           const handleProvinceClick = (provinceId: string) => {
             if (shouldIgnoreMapClick()) {
               return;
@@ -260,6 +282,18 @@ export function USMap({
 
             triggerProvinceDoubleClick(provinceId);
           };
+
+          const fullLabelProgress = clamp01(
+            (zoomLevel - MAP_LOW_ZOOM_THRESHOLD) /
+              (MAP_HIGH_ZOOM_THRESHOLD - MAP_LOW_ZOOM_THRESHOLD),
+          );
+          const centerDotOpacity = clamp01((zoomLevel - 1.35) / 0.35);
+          const abbreviationFadeStart = MAP_LOW_ZOOM_THRESHOLD + 0.08;
+          const abbreviationFadeEnd = MAP_HIGH_ZOOM_THRESHOLD - 0.31;
+          const fullNameFadeStart = MAP_HIGH_ZOOM_THRESHOLD - 0.37;
+          const fullNameFadeEnd = MAP_HIGH_ZOOM_THRESHOLD - 0.11;
+          const counterZoomScale = getCounterZoomScale(zoomLevel);
+          const isHighZoom = zoomLevel >= MAP_HIGH_ZOOM_THRESHOLD;
 
           return (
             <>
@@ -320,22 +354,86 @@ export function USMap({
               </g>
 
               <g pointerEvents="none" aria-label="state labels">
+                {provinceRenderData.map((renderData) => {
+                  const isSmallLabelState = SMALL_LABEL_PROVINCE_IDS.has(renderData.province.id);
+                  const labelX = renderData.province.labelX ?? renderData.province.centroidX;
+                  const labelY = renderData.province.labelY ?? renderData.province.centroidY;
+                  const abbreviationOpacity = isSmallLabelState
+                    ? 1
+                    : clamp01(
+                        (abbreviationFadeEnd - zoomLevel) /
+                          Math.max(0.001, abbreviationFadeEnd - abbreviationFadeStart),
+                      );
+                  const fullNameOpacity = isSmallLabelState
+                    ? 0
+                    : clamp01(
+                        (zoomLevel - fullNameFadeStart) /
+                          Math.max(0.001, fullNameFadeEnd - fullNameFadeStart),
+                      );
+                  const abbreviationFontSize = isSmallLabelState ? (isHighZoom ? 10.4 : 10) : 12;
+                  const fullNameFontSize = 10.5 + fullLabelProgress * 1.1;
+
+                  return (
+                    <g key={`label-${renderData.province.id}`}>
+                      <text
+                        x={labelX}
+                        y={labelY}
+                        textAnchor="middle"
+                        fill={WAR_MAP_THEME.labelFill}
+                        fontSize={abbreviationFontSize}
+                        fontWeight="800"
+                        letterSpacing={0.8}
+                        stroke={WAR_MAP_THEME.labelStroke}
+                        strokeWidth="3.4"
+                        paintOrder="stroke"
+                        opacity={abbreviationOpacity}
+                        style={{ transition: 'opacity 140ms ease, font-size 140ms ease' }}
+                      >
+                        {getProvinceLabel(renderData.province)}
+                      </text>
+                      {!isSmallLabelState ? (
+                        <text
+                          x={labelX}
+                          y={labelY + (isHighZoom ? 2 : 0)}
+                          textAnchor="middle"
+                          fill="#d9e2ea"
+                          fontSize={fullNameFontSize}
+                          fontWeight="700"
+                          letterSpacing={0.35}
+                          stroke={WAR_MAP_THEME.labelStroke}
+                          strokeWidth="3"
+                          paintOrder="stroke"
+                          opacity={fullNameOpacity}
+                          style={{ transition: 'opacity 140ms ease, font-size 140ms ease' }}
+                        >
+                          {renderData.province.name}
+                        </text>
+                      ) : null}
+                    </g>
+                  );
+                })}
+              </g>
+
+              <g pointerEvents="none" aria-label="state centers" opacity={centerDotOpacity} style={{ transition: 'opacity 140ms ease' }}>
                 {provinceRenderData.map((renderData) => (
-                  <text
-                    key={`label-${renderData.province.id}`}
-                    x={renderData.province.labelX ?? renderData.province.centroidX}
-                    y={renderData.province.labelY ?? renderData.province.centroidY}
-                    textAnchor="middle"
-                    fill={WAR_MAP_THEME.labelFill}
-                    fontSize={SMALL_LABEL_PROVINCE_IDS.has(renderData.province.id) ? 10 : 12}
-                    fontWeight="800"
-                    letterSpacing={0.8}
-                    stroke={WAR_MAP_THEME.labelStroke}
-                    strokeWidth="3.4"
-                    paintOrder="stroke"
-                  >
-                    {getProvinceLabel(renderData.province)}
-                  </text>
+                  <g key={`center-${renderData.province.id}`}>
+                    <circle
+                      cx={renderData.province.centroidX}
+                      cy={renderData.province.centroidY}
+                      r={3.4}
+                      fill="#d8c9a2"
+                      opacity={0.78}
+                    />
+                    <circle
+                      cx={renderData.province.centroidX}
+                      cy={renderData.province.centroidY}
+                      r={5.8}
+                      fill="none"
+                      stroke="#171e26"
+                      strokeWidth={1.3}
+                      opacity={0.65}
+                    />
+                  </g>
                 ))}
               </g>
 
@@ -381,7 +479,7 @@ export function USMap({
                       units={renderData.provinceUnits}
                       nation={renderData.unitNation ?? renderData.ownerNation}
                       isSelected={renderData.hasSelectedUnitsInProvince}
-                      scale={renderData.counterScale}
+                      scale={renderData.counterScale * counterZoomScale}
                     />
                   ) : null,
                 )}
