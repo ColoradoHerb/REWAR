@@ -12,6 +12,12 @@ const moveUnitCommandSchema = z.object({
   toProvinceId: z.string().min(1),
 });
 
+const moveUnitsCommandSchema = z.object({
+  type: z.literal('MOVE_UNITS'),
+  unitIds: z.array(z.string().min(1)).min(1),
+  toProvinceId: z.string().min(1),
+});
+
 const queueUnitCommandSchema = z.object({
   type: z.literal('QUEUE_UNIT'),
   provinceId: z.string().min(1),
@@ -35,6 +41,8 @@ const commandsRoutes: FastifyPluginAsync = async (app) => {
         const parsedCommand =
           envelope.data.type === 'MOVE_UNIT'
             ? moveUnitCommandSchema.safeParse(request.body)
+            : envelope.data.type === 'MOVE_UNITS'
+              ? moveUnitsCommandSchema.safeParse(request.body)
             : envelope.data.type === 'QUEUE_UNIT'
               ? queueUnitCommandSchema.safeParse(request.body)
               : null;

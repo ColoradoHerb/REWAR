@@ -52,6 +52,26 @@ export async function sendMoveUnitCommand(sessionId: string, unitId: string, toP
   }
 }
 
+export async function sendMoveUnitsCommand(sessionId: string, unitIds: string[], toProvinceId: string) {
+  const response = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}/commands`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      type: 'MOVE_UNITS',
+      unitIds,
+      toProvinceId,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await getErrorMessage(response, `MOVE_UNITS failed with status ${response.status}`),
+    );
+  }
+}
+
 export async function sendQueueUnitCommand(
   sessionId: string,
   provinceId: string,

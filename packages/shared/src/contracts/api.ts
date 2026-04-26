@@ -14,6 +14,12 @@ export type MoveUnitCommand = {
   toProvinceId: Id;
 };
 
+export type MoveUnitsCommand = {
+  type: 'MOVE_UNITS';
+  unitIds: Id[];
+  toProvinceId: Id;
+};
+
 export type QueueUnitCommand = {
   type: 'QUEUE_UNIT';
   provinceId: Id;
@@ -25,9 +31,12 @@ export type CancelProductionCommand = {
   queueId: Id;
 };
 
-export type GameCommand = MoveUnitCommand | QueueUnitCommand | CancelProductionCommand;
+export type GameCommand =
+  | MoveUnitCommand
+  | MoveUnitsCommand
+  | QueueUnitCommand
+  | CancelProductionCommand;
 
 export interface CommandResponse {
   ok: boolean;
 }
-

@@ -4,11 +4,13 @@ import { createIncomeRateByNation } from '@rewar/rules';
 type OverviewPanelProps = {
   worldState: WorldState;
   selectedProvinceId: string | null;
-  selectedUnitId: string | null;
+  selectedUnitIds: string[];
   recentMessages: string[];
   isQueueingProduction: boolean;
   onQueueUnit: (provinceId: string, unitTypeCode: UnitTypeCode) => void | Promise<void>;
-  onSelectUnit: (unitId: string) => void;
+  onToggleUnitSelection: (unitId: string) => void;
+  onSelectAllIdleUnits: () => void;
+  onClearUnitSelection: () => void;
 };
 
 function getBalanceAmount(balances: NationResourceBalance[], nationId: string, resourceCode: string) {
@@ -35,13 +37,16 @@ function formatYieldPerMinute(baseYield: Partial<Record<ResourceCode, number>>) 
 export function OverviewPanel({
   worldState,
   selectedProvinceId,
-  selectedUnitId,
+  selectedUnitIds,
   recentMessages,
   isQueueingProduction,
   onQueueUnit,
-  onSelectUnit,
+  onToggleUnitSelection,
+  onSelectAllIdleUnits,
+  onClearUnitSelection,
 }: OverviewPanelProps) {
   const activeUnits = worldState.units.filter((unit) => unit.status !== 'destroyed');
+  const selectedUnitIdSet = new Set(selectedUnitIds);
   const serverTimeMs = new Date(worldState.serverTime).getTime();
   const nationById = new Map(worldState.nations.map((nation) => [nation.id, nation]));
   const unitTypeByCode = new Map(worldState.unitTypes.map((unitType) => [unitType.code, unitType]));
@@ -72,23 +77,37 @@ export function OverviewPanel({
   const selectedProductionQueue = selectedProvince
     ? activeProductionQueueByProvinceId.get(selectedProvince.id) ?? null
     : null;
-  const selectedUnits = selectedProvince
+  const selectedProvinceUnits = selectedProvince
     ? activeUnits.filter((unit) => unit.provinceId === selectedProvince.id)
     : [];
-  const selectedFriendlyUnits = selectedUnits.filter(
+  const selectedFriendlyUnits = selectedProvinceUnits.filter(
     (unit) => unit.nationId === worldState.session.humanNationId,
   );
-  const selectedEnemyUnits = selectedUnits.filter(
+  const selectedEnemyUnits = selectedProvinceUnits.filter(
     (unit) => unit.nationId !== worldState.session.humanNationId,
   );
-  const selectedUnit = selectedUnitId
-    ? activeUnits.find((unit) => unit.id === selectedUnitId) ?? null
+  const selectedIdleFriendlyUnits = selectedFriendlyUnits.filter((unit) => unit.status === 'idle');
+  const selectedGroupUnits = activeUnits.filter((unit) => selectedUnitIdSet.has(unit.id));
+  const selectedGroupOriginProvinceId =
+    selectedGroupUnits.length > 0 &&
+    selectedGroupUnits.every((unit) => unit.status === 'idle' && unit.provinceId === selectedGroupUnits[0]?.provinceId)
+      ? selectedGroupUnits[0]?.provinceId ?? null
+      : null;
+  const selectedGroupOriginProvince = selectedGroupOriginProvinceId
+    ? provinceById.get(selectedGroupOriginProvinceId) ?? null
     : null;
-  const selectedUnitType = selectedUnit ? unitTypeByCode.get(selectedUnit.unitTypeCode) : null;
-  const selectedUnitNation = selectedUnit ? nationById.get(selectedUnit.nationId) : null;
-  const selectedUnitOrder = selectedUnit ? movementOrderByUnitId.get(selectedUnit.id) : null;
-  const selectedUnitDestination = selectedUnitOrder
-    ? provinceById.get(selectedUnitOrder.toProvinceId)
+  const selectedSingleUnit = selectedGroupUnits.length === 1 ? selectedGroupUnits[0] : null;
+  const selectedSingleUnitType = selectedSingleUnit
+    ? unitTypeByCode.get(selectedSingleUnit.unitTypeCode)
+    : null;
+  const selectedSingleUnitNation = selectedSingleUnit
+    ? nationById.get(selectedSingleUnit.nationId)
+    : null;
+  const selectedSingleUnitOrder = selectedSingleUnit
+    ? movementOrderByUnitId.get(selectedSingleUnit.id)
+    : null;
+  const selectedSingleUnitDestination = selectedSingleUnitOrder
+    ? provinceById.get(selectedSingleUnitOrder.toProvinceId)
     : null;
   const selectedProvinceCanProduce = Boolean(
     selectedProvince &&
@@ -133,9 +152,11 @@ export function OverviewPanel({
         <p style={{ color: '#94a3b8' }}>No combat resolved yet.</p>
       )}
 
-      <h3>Selected Unit</h3>
-      {!selectedUnit ? (
-        <p style={{ color: '#94a3b8' }}>Select one of your units to issue movement.</p>
+      <h3>Selected Force</h3>
+      {selectedGroupUnits.length === 0 ? (
+        <p style={{ color: '#94a3b8' }}>
+          Select one or more idle friendly units in the selected province to issue a group move.
+        </p>
       ) : (
         <div
           style={{
@@ -147,19 +168,46 @@ export function OverviewPanel({
           }}
         >
           <p style={{ marginTop: 0 }}>
-            <strong>{selectedUnitType?.name ?? selectedUnit.unitTypeCode}</strong>
+            <strong>
+              {selectedGroupUnits.length} unit{selectedGroupUnits.length === 1 ? '' : 's'} selected
+            </strong>
           </p>
-          <p>Nation: {selectedUnitNation?.name ?? selectedUnit.nationId}</p>
-          <p>Status: {selectedUnit.status === 'moving' ? 'Moving' : 'Idle'}</p>
-          <p>Strength: {selectedUnit.currentStrength}</p>
-          {selectedUnitOrder ? (
-            <p style={{ marginBottom: 0 }}>
-              Moving to: {selectedUnitDestination?.name ?? selectedUnitOrder.toProvinceId}
-            </p>
+          <p>
+            Origin: {selectedGroupOriginProvince?.name ?? 'Mixed or invalid selection'}
+          </p>
+
+          {selectedSingleUnit ? (
+            <>
+              <p>Type: {selectedSingleUnitType?.name ?? selectedSingleUnit.unitTypeCode}</p>
+              <p>Nation: {selectedSingleUnitNation?.name ?? selectedSingleUnit.nationId}</p>
+              <p>Status: {selectedSingleUnit.status === 'moving' ? 'Moving' : 'Idle'}</p>
+              <p>Strength: {selectedSingleUnit.currentStrength}</p>
+              {selectedSingleUnitOrder ? (
+                <p style={{ marginBottom: 0 }}>
+                  Moving to: {selectedSingleUnitDestination?.name ?? selectedSingleUnitOrder.toProvinceId}
+                </p>
+              ) : (
+                <p style={{ marginBottom: 0 }}>
+                  Ready to move to an adjacent province.
+                </p>
+              )}
+            </>
           ) : (
-            <p style={{ marginBottom: 0 }}>
-              Current province: {provinceById.get(selectedUnit.provinceId)?.name ?? selectedUnit.provinceId}
-            </p>
+            <>
+              <ul style={{ marginTop: 0, paddingLeft: 20 }}>
+                {selectedGroupUnits.map((unit) => {
+                  const unitType = unitTypeByCode.get(unit.unitTypeCode);
+                  return (
+                    <li key={unit.id}>
+                      {unitType?.name ?? unit.unitTypeCode} - strength {unit.currentStrength}
+                    </li>
+                  );
+                })}
+              </ul>
+              <p style={{ marginBottom: 0, color: '#cbd5e1' }}>
+                Click an adjacent highlighted province or state to move the selected group.
+              </p>
+            </>
           )}
         </div>
       )}
@@ -224,7 +272,7 @@ export function OverviewPanel({
           <p>Terrain: {selectedProvince.terrainType}</p>
           <p>Yield: {formatYieldPerMinute(selectedProvince.baseYield) || 'None'}</p>
           <p>Production center: {selectedProvince.isProductionCenter ? 'Yes' : 'No'}</p>
-          <p>Units present: {selectedUnits.length}</p>
+          <p>Units present: {selectedProvinceUnits.length}</p>
           <p>Friendly units: {selectedFriendlyUnits.length}</p>
           <p>Enemy units: {selectedEnemyUnits.length}</p>
 
@@ -253,10 +301,7 @@ export function OverviewPanel({
                 const totalMs = Math.max(1, completesAtMs - startedAtMs);
                 const elapsedMs = Math.max(0, Math.min(totalMs, serverTimeMs - startedAtMs));
                 const progressPercent = Math.round((elapsedMs / totalMs) * 100);
-                const remainingSeconds = Math.max(
-                  0,
-                  Math.ceil((completesAtMs - serverTimeMs) / 1_000),
-                );
+                const remainingSeconds = Math.max(0, Math.ceil((completesAtMs - serverTimeMs) / 1_000));
 
                 return (
                   <div
@@ -319,46 +364,100 @@ export function OverviewPanel({
             )}
           </div>
 
-          {selectedUnits.length > 0 ? (
+          {selectedProvinceUnits.length > 0 ? (
             <div style={{ display: 'grid', gap: 12 }}>
               <div>
-                <h4 style={{ marginTop: 0, marginBottom: 8 }}>Friendly Units</h4>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 12,
+                    marginBottom: 8,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <h4 style={{ margin: 0 }}>Friendly Units</h4>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={onSelectAllIdleUnits}
+                      disabled={selectedIdleFriendlyUnits.length === 0}
+                      style={{
+                        border: '1px solid #475569',
+                        borderRadius: 8,
+                        background: '#0f172a',
+                        color: selectedIdleFriendlyUnits.length === 0 ? '#64748b' : '#e2e8f0',
+                        padding: '6px 10px',
+                        cursor: selectedIdleFriendlyUnits.length === 0 ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      Select all idle
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onClearUnitSelection}
+                      disabled={selectedUnitIds.length === 0}
+                      style={{
+                        border: '1px solid #475569',
+                        borderRadius: 8,
+                        background: '#0f172a',
+                        color: selectedUnitIds.length === 0 ? '#64748b' : '#e2e8f0',
+                        padding: '6px 10px',
+                        cursor: selectedUnitIds.length === 0 ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      Clear selection
+                    </button>
+                  </div>
+                </div>
+
+                <p style={{ marginTop: 0, color: '#cbd5e1' }}>
+                  Selected here: {selectedGroupUnits.filter((unit) => unit.provinceId === selectedProvince.id).length}
+                </p>
+
                 {selectedFriendlyUnits.length > 0 ? (
                   <ul style={{ margin: 0, paddingLeft: 20 }}>
                     {selectedFriendlyUnits.map((unit) => {
                       const unitNation = nationById.get(unit.nationId);
                       const unitType = unitTypeByCode.get(unit.unitTypeCode);
                       const activeOrder = movementOrderByUnitId.get(unit.id);
-                      const isSelectedUnit = unit.id === selectedUnitId;
+                      const isSelectedUnit = selectedUnitIdSet.has(unit.id);
+                      const canSelectUnit = unit.status === 'idle';
 
                       return (
-                        <li key={unit.id} style={{ marginBottom: 8 }}>
-                          <div>
-                            <strong>{unitType?.name ?? unit.unitTypeCode}</strong> - {unitNation?.name ?? unit.nationId}
-                          </div>
-                          <div>Status: {unit.status} - Strength: {unit.currentStrength}</div>
-                          {activeOrder ? (
-                            <div>
-                              Moving to {provinceById.get(activeOrder.toProvinceId)?.name ?? activeOrder.toProvinceId}
-                            </div>
-                          ) : null}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onSelectUnit(unit.id);
-                            }}
+                        <li key={unit.id} style={{ marginBottom: 10 }}>
+                          <label
                             style={{
-                              marginTop: 6,
-                              border: '1px solid #475569',
-                              borderRadius: 8,
-                              background: isSelectedUnit ? '#1d4ed8' : '#0f172a',
-                              color: '#e2e8f0',
-                              padding: '6px 10px',
-                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'flex-start',
+                              gap: 10,
+                              cursor: canSelectUnit ? 'pointer' : 'default',
                             }}
                           >
-                            {isSelectedUnit ? 'Selected' : 'Select unit'}
-                          </button>
+                            <input
+                              type="checkbox"
+                              checked={isSelectedUnit}
+                              disabled={!canSelectUnit}
+                              onChange={() => {
+                                onToggleUnitSelection(unit.id);
+                              }}
+                            />
+                            <span>
+                              <div>
+                                <strong>{unitType?.name ?? unit.unitTypeCode}</strong> - {unitNation?.name ?? unit.nationId}
+                              </div>
+                              <div>Status: {unit.status} - Strength: {unit.currentStrength}</div>
+                              {activeOrder ? (
+                                <div>
+                                  Moving to {provinceById.get(activeOrder.toProvinceId)?.name ?? activeOrder.toProvinceId}
+                                </div>
+                              ) : null}
+                              {!canSelectUnit ? (
+                                <div style={{ color: '#94a3b8' }}>Only idle units can join a group move.</div>
+                              ) : null}
+                            </span>
+                          </label>
                         </li>
                       );
                     })}
@@ -379,8 +478,8 @@ export function OverviewPanel({
 
                       return (
                         <li key={unit.id}>
-                          {unitType?.name ?? unit.unitTypeCode} - {unitNation?.name ?? unit.nationId} -
-                          {' '}Status {unit.status} - Strength {unit.currentStrength}
+                          {unitType?.name ?? unit.unitTypeCode} - {unitNation?.name ?? unit.nationId} - Status{' '}
+                          {unit.status} - Strength {unit.currentStrength}
                           {activeOrder ? ` - moving to ${provinceById.get(activeOrder.toProvinceId)?.name ?? activeOrder.toProvinceId}` : ''}
                         </li>
                       );

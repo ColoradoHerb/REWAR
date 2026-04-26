@@ -14,7 +14,7 @@ function getProvinceFrame(centroidX: number, centroidY: number) {
 export function StarterWorldMap({
   worldState,
   selectedProvinceId,
-  selectedUnitId,
+  selectedUnitIds,
   onProvinceSelect,
 }: StrategyMapProps) {
   const activeUnits = worldState.units.filter((unit) => unit.status !== 'destroyed');
@@ -23,7 +23,13 @@ export function StarterWorldMap({
     worldState.provinceStates.map((provinceState) => [provinceState.provinceId, provinceState]),
   );
   const unitsByProvinceId = new Map<string, WorldState['units']>();
-  const selectedUnit = activeUnits.find((unit) => unit.id === selectedUnitId) ?? null;
+  const selectedUnitIdSet = new Set(selectedUnitIds);
+  const selectedUnits = activeUnits.filter((unit) => selectedUnitIdSet.has(unit.id));
+  const selectedGroupOriginProvinceId =
+    selectedUnits.length > 0 &&
+    selectedUnits.every((unit) => unit.status === 'idle' && unit.provinceId === selectedUnits[0]?.provinceId)
+      ? selectedUnits[0]?.provinceId ?? null
+      : null;
   const activeMovementOrderByUnitId = new Map(
     worldState.movementOrders
       .filter((movementOrder) => movementOrder.status === 'active')
@@ -40,8 +46,8 @@ export function StarterWorldMap({
     <section>
       <h2 style={{ marginTop: 0 }}>Starter World Map</h2>
       <p style={{ color: '#94a3b8' }}>
-        Click a province with one of your units to select it, then click an adjacent province to
-        move.
+        Select one or more idle friendly units in the province panel, then click an adjacent
+        province to move them.
       </p>
 
       <svg
@@ -65,9 +71,9 @@ export function StarterWorldMap({
           const { x, y, width, height } = getProvinceFrame(province.centroidX, province.centroidY);
           const isSelectedProvince = province.id === selectedProvinceId;
           const isAdjacentTarget =
-            selectedUnit &&
-            selectedUnit.status !== 'moving' &&
-            isAdjacentProvinceMove(selectedUnit.provinceId, province.id, worldState.edges);
+            selectedGroupOriginProvinceId &&
+            selectedGroupOriginProvinceId !== province.id &&
+            isAdjacentProvinceMove(selectedGroupOriginProvinceId, province.id, worldState.edges);
 
           return (
             <g key={province.id}>
@@ -135,7 +141,7 @@ export function StarterWorldMap({
               {provinceUnits.map((unit, index) => {
                 const unitNation = nationById.get(unit.nationId);
                 const markerOffset = (index - (provinceUnits.length - 1) / 2) * 18;
-                const isSelectedUnit = unit.id === selectedUnitId;
+                const isSelectedUnit = selectedUnitIdSet.has(unit.id);
                 const activeOrder = activeMovementOrderByUnitId.get(unit.id);
 
                 return (

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   canProvinceBuildUnitType,
   createAdjacentMovementTiming,
+  createGroupedAdjacentMovementTimings,
   createProductionTiming,
   getBuildCostSnapshot,
   hasSufficientResources,
@@ -50,6 +51,8 @@ export async function executeGameCommand(
   switch (command.type) {
     case 'MOVE_UNIT':
       return executeMoveUnitCommand(sessionId, session.humanNationId, command, availableProvinceIds);
+    case 'MOVE_UNITS':
+      return executeMoveUnitsCommand(sessionId, session.humanNationId, command, availableProvinceIds);
     case 'QUEUE_UNIT':
       return executeQueueUnitCommand(sessionId, session.humanNationId, command, provinceById);
     default:
@@ -129,6 +132,138 @@ async function executeMoveUnitCommand(
         status: 'moving',
       },
     });
+  });
+
+  return { ok: true };
+}
+
+function compareUnitsByMovementOrder(
+  left: Pick<Awaited<ReturnType<typeof prisma.unit.findMany>>[number], 'createdAt' | 'id'>,
+  right: Pick<Awaited<ReturnType<typeof prisma.unit.findMany>>[number], 'createdAt' | 'id'>,
+) {
+  if (left.createdAt.getTime() !== right.createdAt.getTime()) {
+    return left.createdAt.getTime() - right.createdAt.getTime();
+  }
+
+  return left.id.localeCompare(right.id);
+}
+
+async function executeMoveUnitsCommand(
+  sessionId: string,
+  humanNationId: string,
+  command: Extract<GameCommand, { type: 'MOVE_UNITS' }>,
+  availableProvinceIds: Set<string>,
+) {
+  if (!availableProvinceIds.has(command.toProvinceId)) {
+    throw new CommandExecutionError(400, `Province ${command.toProvinceId} is not part of this session.`);
+  }
+
+  const distinctUnitIds = Array.from(new Set(command.unitIds));
+
+  if (distinctUnitIds.length === 0) {
+    throw new CommandExecutionError(400, 'At least one unit must be selected.');
+  }
+
+  if (distinctUnitIds.length !== command.unitIds.length) {
+    throw new CommandExecutionError(400, 'Duplicate units cannot be included in the same group move.');
+  }
+
+  const units = await prisma.unit.findMany({
+    where: {
+      id: {
+        in: distinctUnitIds,
+      },
+    },
+  });
+
+  if (units.length !== distinctUnitIds.length) {
+    throw new CommandExecutionError(404, 'One or more selected units were not found.');
+  }
+
+  const movementEdges = PROVINCE_EDGES.filter(
+    (edge) => availableProvinceIds.has(edge.fromProvinceId) && availableProvinceIds.has(edge.toProvinceId),
+  );
+
+  const sortedUnits = [...units].sort(compareUnitsByMovementOrder);
+  const originProvinceId = sortedUnits[0]?.provinceId ?? null;
+
+  if (!originProvinceId) {
+    throw new CommandExecutionError(400, 'Selected units must share a valid origin province.');
+  }
+
+  if (
+    !isAdjacentProvinceMove(
+      originProvinceId,
+      command.toProvinceId,
+      movementEdges,
+    )
+  ) {
+    throw new CommandExecutionError(400, 'Destination province must be adjacent to the selected group.');
+  }
+
+  const activeMovementOrders = await prisma.movementOrder.findMany({
+    where: {
+      sessionId,
+      unitId: {
+        in: distinctUnitIds,
+      },
+      status: 'active',
+    },
+  });
+  const activeMovementOrderUnitIds = new Set(activeMovementOrders.map((order) => order.unitId));
+
+  for (const unit of sortedUnits) {
+    if (unit.sessionId !== sessionId) {
+      throw new CommandExecutionError(404, `Unit ${unit.id} was not found in this session.`);
+    }
+
+    if (unit.nationId !== humanNationId) {
+      throw new CommandExecutionError(403, 'All selected units must belong to the active human nation.');
+    }
+
+    if (unit.status === 'destroyed') {
+      throw new CommandExecutionError(400, 'Destroyed units cannot be moved.');
+    }
+
+    if (unit.status !== 'idle' || activeMovementOrderUnitIds.has(unit.id)) {
+      throw new CommandExecutionError(400, 'All selected units must be idle and not already moving.');
+    }
+
+    if (unit.provinceId !== originProvinceId) {
+      throw new CommandExecutionError(400, 'All selected units must start in the same province.');
+    }
+  }
+
+  const issuedAt = new Date();
+  const movementTimings = createGroupedAdjacentMovementTimings(issuedAt, sortedUnits.length);
+
+  await prisma.$transaction(async (tx) => {
+    for (const [index, unit] of sortedUnits.entries()) {
+      const movementTiming = movementTimings[index];
+
+      await tx.movementOrder.create({
+        data: {
+          id: randomUUID(),
+          sessionId,
+          unitId: unit.id,
+          nationId: unit.nationId,
+          fromProvinceId: originProvinceId,
+          toProvinceId: command.toProvinceId,
+          issuedAt,
+          departsAt: movementTiming.departsAt,
+          arrivesAt: movementTiming.arrivesAt,
+          travelHours: movementTiming.travelHours,
+          status: 'active',
+        },
+      });
+
+      await tx.unit.update({
+        where: { id: unit.id },
+        data: {
+          status: 'moving',
+        },
+      });
+    }
   });
 
   return { ok: true };

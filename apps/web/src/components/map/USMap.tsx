@@ -30,7 +30,7 @@ function getUnitMarkerLabel(units: WorldState['units']) {
 export function USMap({
   worldState,
   selectedProvinceId,
-  selectedUnitId,
+  selectedUnitIds,
   onProvinceSelect,
 }: StrategyMapProps) {
   const activeUnits = worldState.units.filter((unit) => unit.status !== 'destroyed');
@@ -38,7 +38,13 @@ export function USMap({
   const provinceStateById = new Map(
     worldState.provinceStates.map((provinceState) => [provinceState.provinceId, provinceState]),
   );
-  const selectedUnit = activeUnits.find((unit) => unit.id === selectedUnitId) ?? null;
+  const selectedUnitIdSet = new Set(selectedUnitIds);
+  const selectedUnits = activeUnits.filter((unit) => selectedUnitIdSet.has(unit.id));
+  const selectedGroupOriginProvinceId =
+    selectedUnits.length > 0 &&
+    selectedUnits.every((unit) => unit.status === 'idle' && unit.provinceId === selectedUnits[0]?.provinceId)
+      ? selectedUnits[0]?.provinceId ?? null
+      : null;
   const unitsByProvinceId = new Map<string, WorldState['units']>();
 
   for (const unit of activeUnits) {
@@ -51,7 +57,8 @@ export function USMap({
     <section>
       <h2 style={{ marginTop: 0 }}>United States Map</h2>
       <p style={{ color: '#94a3b8' }}>
-        Click a state to inspect it. Select one of your units, then click an adjacent state to move.
+        Click a state to inspect it. Select one or more idle friendly units, then click an adjacent
+        state to move them.
       </p>
 
       <svg
@@ -85,12 +92,12 @@ export function USMap({
               : ownerNation;
           const isSelectedProvince = province.id === selectedProvinceId;
           const isAdjacentTarget =
-            selectedUnit &&
-            selectedUnit.status !== 'moving' &&
-            isAdjacentProvinceMove(selectedUnit.provinceId, province.id, worldState.edges);
-          const markerStroke =
-            province.id === selectedUnit?.provinceId ? '#f8fafc' : '#020617';
-          const markerStrokeWidth = province.id === selectedUnit?.provinceId ? 3 : 2;
+            selectedGroupOriginProvinceId &&
+            selectedGroupOriginProvinceId !== province.id &&
+            isAdjacentProvinceMove(selectedGroupOriginProvinceId, province.id, worldState.edges);
+          const hasSelectedUnitsInProvince = provinceUnits.some((unit) => selectedUnitIdSet.has(unit.id));
+          const markerStroke = hasSelectedUnitsInProvince ? '#f8fafc' : '#020617';
+          const markerStrokeWidth = hasSelectedUnitsInProvince ? 3 : 2;
 
           return (
             <g key={province.id}>

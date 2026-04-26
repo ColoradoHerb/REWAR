@@ -3,7 +3,7 @@ import type { MovementOrder, UnitTypeCode, WorldState } from '@rewar/shared';
 import { AppShell } from '../components/ui';
 import { StrategyMap } from '../components/map';
 import { OverviewPanel } from '../components/panels';
-import { fetchWorldState, sendMoveUnitCommand, sendQueueUnitCommand } from '../lib/api/client';
+import { fetchWorldState, sendMoveUnitsCommand, sendQueueUnitCommand } from '../lib/api/client';
 import { initialUiState, type UiState } from '../lib/state/uiState';
 
 const DEFAULT_SESSION_ID = 'starter-session';
@@ -146,30 +146,38 @@ export function GamePage() {
       }
 
       setUiState((currentUiState) => {
-        const selectedUnit = currentUiState.selectedUnitId
-          ? nextWorldState.units.find((unit) => unit.id === currentUiState.selectedUnitId) ?? null
-          : null;
         const hasSelectedProvince =
           currentUiState.selectedProvinceId &&
           nextWorldState.provinces.some((province) => province.id === currentUiState.selectedProvinceId);
+        const nextSelectedUnits = currentUiState.selectedUnitIds
+          .map((selectedUnitId) =>
+            nextWorldState.units.find((unit) => unit.id === selectedUnitId) ?? null,
+          )
+          .filter(
+            (unit): unit is WorldState['units'][number] =>
+              Boolean(
+                unit &&
+                  unit.status === 'idle' &&
+                  unit.status !== 'destroyed' &&
+                  unit.nationId === nextWorldState.session.humanNationId,
+              ),
+          );
+        const selectedUnitsShareOrigin =
+          nextSelectedUnits.length > 0 &&
+          nextSelectedUnits.every((unit) => unit.provinceId === nextSelectedUnits[0]?.provinceId);
 
-        if (selectedUnit && selectedUnit.status !== 'destroyed') {
-          const activeOrder =
-            nextWorldState.movementOrders.find(
-              (movementOrder) =>
-                movementOrder.unitId === selectedUnit.id && movementOrder.status === 'active',
-            ) ?? null;
-
+        if (selectedUnitsShareOrigin) {
           return {
-            selectedUnitId: selectedUnit.id,
+            selectedUnitIds: nextSelectedUnits.map((unit) => unit.id),
             selectedProvinceId:
-              activeOrder?.toProvinceId ??
-              (hasSelectedProvince ? currentUiState.selectedProvinceId : selectedUnit.provinceId),
+              hasSelectedProvince && currentUiState.selectedProvinceId === nextSelectedUnits[0]?.provinceId
+                ? currentUiState.selectedProvinceId
+                : nextSelectedUnits[0]?.provinceId ?? null,
           };
         }
 
         return {
-          selectedUnitId: null,
+          selectedUnitIds: [],
           selectedProvinceId: hasSelectedProvince ? currentUiState.selectedProvinceId : null,
         };
       });
@@ -209,10 +217,27 @@ export function GamePage() {
     () => worldState?.units.filter((unit) => unit.status !== 'destroyed') ?? [],
     [worldState],
   );
-  const selectedUnit = useMemo(
-    () => activeUnits.find((unit) => unit.id === uiState.selectedUnitId) ?? null,
-    [activeUnits, uiState.selectedUnitId],
+  const selectedUnits = useMemo(
+    () => activeUnits.filter((unit) => uiState.selectedUnitIds.includes(unit.id)),
+    [activeUnits, uiState.selectedUnitIds],
   );
+  const selectedGroupOriginProvinceId = useMemo(() => {
+    if (selectedUnits.length === 0) {
+      return null;
+    }
+
+    const [firstSelectedUnit] = selectedUnits;
+
+    if (!firstSelectedUnit) {
+      return null;
+    }
+
+    return selectedUnits.every(
+      (unit) => unit.status === 'idle' && unit.provinceId === firstSelectedUnit.provinceId,
+    )
+      ? firstSelectedUnit.provinceId
+      : null;
+  }, [selectedUnits]);
 
   const handleProvinceSelect = useCallback(
     async (provinceId: string) => {
@@ -221,43 +246,63 @@ export function GamePage() {
       }
 
       const clickedProvinceUnits = activeUnits.filter((unit) => unit.provinceId === provinceId);
-      const clickedHumanUnit =
-        clickedProvinceUnits.find((unit) => unit.nationId === worldState.session.humanNationId) ?? null;
+      const clickedHumanIdleUnits = clickedProvinceUnits.filter(
+        (unit) =>
+          unit.nationId === worldState.session.humanNationId &&
+          unit.status === 'idle',
+      );
 
       const canIssueMove =
-        selectedUnit &&
-        selectedUnit.status === 'idle' &&
-        selectedUnit.provinceId !== provinceId &&
+        selectedGroupOriginProvinceId &&
+        selectedUnits.length > 0 &&
+        selectedGroupOriginProvinceId !== provinceId &&
         worldState.edges.some(
           (edge) =>
-            edge.fromProvinceId === selectedUnit.provinceId && edge.toProvinceId === provinceId,
+            edge.fromProvinceId === selectedGroupOriginProvinceId && edge.toProvinceId === provinceId,
         );
 
       if (canIssueMove) {
         try {
           setIsIssuingMove(true);
           setErrorMessage(null);
-          await sendMoveUnitCommand(worldState.session.id, selectedUnit.id, provinceId);
-          setUiState((currentUiState) => ({
-            ...currentUiState,
+          await sendMoveUnitsCommand(
+            worldState.session.id,
+            selectedUnits.map((unit) => unit.id),
+            provinceId,
+          );
+          setUiState({
             selectedProvinceId: provinceId,
-            selectedUnitId: selectedUnit.id,
-          }));
+            selectedUnitIds: [],
+          });
           await loadWorld({ background: true });
         } catch (error) {
-          setErrorMessage(error instanceof Error ? error.message : 'Failed to issue MOVE_UNIT.');
+          setErrorMessage(error instanceof Error ? error.message : 'Failed to issue MOVE_UNITS.');
         } finally {
           setIsIssuingMove(false);
         }
         return;
       }
 
-      setUiState({
-        selectedProvinceId: provinceId,
-        selectedUnitId: clickedHumanUnit?.id ?? null,
+      setUiState((currentUiState) => {
+        const selectedUnitIdsForProvince =
+          currentUiState.selectedProvinceId === provinceId
+            ? currentUiState.selectedUnitIds.filter((unitId) =>
+                clickedHumanIdleUnits.some((unit) => unit.id === unitId),
+              )
+            : [];
+
+        return {
+          selectedProvinceId: provinceId,
+          selectedUnitIds:
+            selectedUnitIdsForProvince.length > 0
+              ? selectedUnitIdsForProvince
+              : clickedHumanIdleUnits[0]
+                ? [clickedHumanIdleUnits[0].id]
+                : [],
+        };
       });
     },
-    [activeUnits, loadWorld, selectedUnit, worldState],
+    [activeUnits, loadWorld, selectedGroupOriginProvinceId, selectedUnits, worldState],
   );
 
   const handleQueueUnit = useCallback(
@@ -280,22 +325,67 @@ export function GamePage() {
     [loadWorld, worldState],
   );
 
-  const handleSelectUnit = useCallback((unitId: string) => {
+  const handleToggleUnitSelection = useCallback((unitId: string) => {
     if (!worldState) {
       return;
     }
 
     const unit = activeUnits.find((entry) => entry.id === unitId);
 
-    if (!unit) {
+    if (
+      !unit ||
+      unit.nationId !== worldState.session.humanNationId ||
+      unit.status !== 'idle' ||
+      unit.status === 'destroyed'
+    ) {
       return;
     }
 
-    setUiState({
-      selectedProvinceId: unit.provinceId,
-      selectedUnitId: unit.id,
+    setUiState((currentUiState) => {
+      if (currentUiState.selectedProvinceId !== unit.provinceId) {
+        return {
+          selectedProvinceId: unit.provinceId,
+          selectedUnitIds: [unit.id],
+        };
+      }
+
+      const isSelected = currentUiState.selectedUnitIds.includes(unit.id);
+
+      return {
+        selectedProvinceId: currentUiState.selectedProvinceId,
+        selectedUnitIds: isSelected
+          ? currentUiState.selectedUnitIds.filter((selectedUnitId) => selectedUnitId !== unit.id)
+          : [...currentUiState.selectedUnitIds, unit.id],
+      };
     });
   }, [activeUnits, worldState]);
+
+  const handleSelectAllIdleUnits = useCallback(() => {
+    if (!worldState || !uiState.selectedProvinceId) {
+      return;
+    }
+
+    const idleFriendlyUnitIds = activeUnits
+      .filter(
+        (unit) =>
+          unit.provinceId === uiState.selectedProvinceId &&
+          unit.nationId === worldState.session.humanNationId &&
+          unit.status === 'idle',
+      )
+      .map((unit) => unit.id);
+
+    setUiState((currentUiState) => ({
+      selectedProvinceId: currentUiState.selectedProvinceId,
+      selectedUnitIds: idleFriendlyUnitIds,
+    }));
+  }, [activeUnits, uiState.selectedProvinceId, worldState]);
+
+  const handleClearUnitSelection = useCallback(() => {
+    setUiState((currentUiState) => ({
+      selectedProvinceId: currentUiState.selectedProvinceId,
+      selectedUnitIds: [],
+    }));
+  }, []);
 
   return (
     <AppShell>
@@ -400,17 +490,19 @@ export function GamePage() {
           <StrategyMap
             worldState={worldState}
             selectedProvinceId={uiState.selectedProvinceId}
-            selectedUnitId={uiState.selectedUnitId}
+            selectedUnitIds={uiState.selectedUnitIds}
             onProvinceSelect={handleProvinceSelect}
           />
           <OverviewPanel
             worldState={worldState}
             selectedProvinceId={uiState.selectedProvinceId}
-            selectedUnitId={uiState.selectedUnitId}
+            selectedUnitIds={uiState.selectedUnitIds}
             recentMessages={recentMessages}
             isQueueingProduction={isQueueingProduction}
             onQueueUnit={handleQueueUnit}
-            onSelectUnit={handleSelectUnit}
+            onToggleUnitSelection={handleToggleUnitSelection}
+            onSelectAllIdleUnits={handleSelectAllIdleUnits}
+            onClearUnitSelection={handleClearUnitSelection}
           />
         </div>
       ) : null}
