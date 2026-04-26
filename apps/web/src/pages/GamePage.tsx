@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MovementOrder, UnitTypeCode, WorldState } from '@rewar/shared';
+import { STACK_COMBAT_BATCH_WINDOW_MS } from '@rewar/rules';
 import { AppShell } from '../components/ui';
 import { StrategyMap } from '../components/map';
 import { OverviewPanel } from '../components/panels';
@@ -22,38 +23,48 @@ function getNationName(worldState: WorldState, nationId: string) {
   return worldState.nations.find((nation) => nation.id === nationId)?.name ?? nationId;
 }
 
-function getUnitTypeName(worldState: WorldState, unitTypeCode: string) {
-  return worldState.unitTypes.find((unitType) => unitType.code === unitTypeCode)?.name ?? unitTypeCode;
-}
-
 function compareUnitsByResolutionOrder(
-  left: Pick<WorldState['units'][number], 'createdAt' | 'id'>,
-  right: Pick<WorldState['units'][number], 'createdAt' | 'id'>,
+  left: Pick<MovementOrder, 'arrivesAt' | 'id'>,
+  right: Pick<MovementOrder, 'arrivesAt' | 'id'>,
 ) {
-  if (left.createdAt !== right.createdAt) {
-    return left.createdAt.localeCompare(right.createdAt);
+  if (left.arrivesAt !== right.arrivesAt) {
+    return left.arrivesAt.localeCompare(right.arrivesAt);
   }
 
   return left.id.localeCompare(right.id);
 }
 
-function getFirstEnemyDefender(previousWorldState: WorldState, order: MovementOrder) {
-  const attacker = previousWorldState.units.find((unit) => unit.id === order.unitId);
+type ArrivedOrderTransition = {
+  previousOrder: MovementOrder;
+  nextOrder: MovementOrder;
+};
 
-  if (!attacker) {
-    return null;
+function groupArrivedOrderTransitions(transitions: ArrivedOrderTransition[]) {
+  const groupedTransitions: ArrivedOrderTransition[][] = [];
+  const sortedTransitions = [...transitions].sort((left, right) =>
+    compareUnitsByResolutionOrder(left.nextOrder, right.nextOrder),
+  );
+
+  for (const transition of sortedTransitions) {
+    const previousGroup = groupedTransitions[groupedTransitions.length - 1];
+    const previousTransition = previousGroup?.[previousGroup.length - 1];
+
+    if (
+      previousTransition &&
+      previousTransition.nextOrder.nationId === transition.nextOrder.nationId &&
+      previousTransition.nextOrder.toProvinceId === transition.nextOrder.toProvinceId &&
+      new Date(transition.nextOrder.arrivesAt).getTime() -
+        new Date(previousGroup[0].nextOrder.arrivesAt).getTime() <=
+        STACK_COMBAT_BATCH_WINDOW_MS
+    ) {
+      previousGroup.push(transition);
+      continue;
+    }
+
+    groupedTransitions.push([transition]);
   }
 
-  return (
-    previousWorldState.units
-      .filter(
-        (unit) =>
-          unit.provinceId === order.toProvinceId &&
-          unit.nationId !== attacker.nationId &&
-          unit.status !== 'destroyed',
-      )
-      .sort(compareUnitsByResolutionOrder)[0] ?? null
-  );
+  return groupedTransitions;
 }
 
 function buildCombatMessages(previousWorldState: WorldState | null, nextWorldState: WorldState) {
@@ -64,48 +75,82 @@ function buildCombatMessages(previousWorldState: WorldState | null, nextWorldSta
   const previousOrdersById = new Map(
     previousWorldState.movementOrders.map((movementOrder) => [movementOrder.id, movementOrder]),
   );
+  const previousUnitsById = new Map(previousWorldState.units.map((unit) => [unit.id, unit]));
+  const nextUnitsById = new Map(nextWorldState.units.map((unit) => [unit.id, unit]));
   const messages: string[] = [];
-
-  for (const nextOrder of nextWorldState.movementOrders) {
+  const arrivedTransitions = nextWorldState.movementOrders.flatMap((nextOrder) => {
     const previousOrder = previousOrdersById.get(nextOrder.id);
 
-    if (!previousOrder || previousOrder.status !== 'active' || nextOrder.status !== 'arrived') {
+    return previousOrder && previousOrder.status === 'active' && nextOrder.status === 'arrived'
+      ? [{ previousOrder, nextOrder }]
+      : [];
+  });
+
+  for (const transitionGroup of groupArrivedOrderTransitions(arrivedTransitions)) {
+    const [firstTransition] = transitionGroup;
+
+    if (!firstTransition) {
       continue;
     }
 
-    const attackerBefore = previousWorldState.units.find((unit) => unit.id === nextOrder.unitId);
-    const defenderBefore = getFirstEnemyDefender(previousWorldState, nextOrder);
-
-    if (!attackerBefore || !defenderBefore) {
-      continue;
-    }
-
-    const attackerAfter = nextWorldState.units.find((unit) => unit.id === attackerBefore.id) ?? null;
-    const provinceName = getProvinceName(nextWorldState, nextOrder.toProvinceId);
-    const attackerNationName = getNationName(nextWorldState, attackerBefore.nationId);
-    const defenderNationName = getNationName(nextWorldState, defenderBefore.nationId);
-    const attackerUnitTypeName = getUnitTypeName(nextWorldState, attackerBefore.unitTypeCode);
-    const defenderUnitTypeName = getUnitTypeName(nextWorldState, defenderBefore.unitTypeCode);
-    const provinceOwnerAfter =
-      nextWorldState.provinceStates.find((provinceState) => provinceState.provinceId === nextOrder.toProvinceId)
+    const attackerNationId = firstTransition.nextOrder.nationId;
+    const provinceId = firstTransition.nextOrder.toProvinceId;
+    const previousProvinceOwnerId =
+      previousWorldState.provinceStates.find((provinceState) => provinceState.provinceId === provinceId)
         ?.ownerNationId ?? null;
 
-    if (attackerAfter && attackerAfter.status !== 'destroyed') {
+    if (!previousProvinceOwnerId || previousProvinceOwnerId === attackerNationId) {
+      continue;
+    }
+
+    const attackersBefore = transitionGroup.flatMap((transition) => {
+      const attacker = previousUnitsById.get(transition.nextOrder.unitId);
+      return attacker && attacker.status !== 'destroyed' ? [attacker] : [];
+    });
+    const defendersBefore = previousWorldState.units.filter(
+      (unit) =>
+        unit.provinceId === provinceId &&
+        unit.nationId === previousProvinceOwnerId &&
+        unit.status !== 'destroyed',
+    );
+
+    if (attackersBefore.length === 0 || defendersBefore.length === 0) {
+      continue;
+    }
+
+    const attackerSurvivors = attackersBefore
+      .map((attacker) => nextUnitsById.get(attacker.id) ?? null)
+      .filter(
+        (unit): unit is WorldState['units'][number] =>
+          Boolean(unit && unit.status !== 'destroyed'),
+      );
+    const defenderSurvivors = defendersBefore
+      .map((defender) => nextUnitsById.get(defender.id) ?? null)
+      .filter(
+        (unit): unit is WorldState['units'][number] =>
+          Boolean(unit && unit.status !== 'destroyed'),
+      );
+
+    const attackerLosses = attackersBefore.length - attackerSurvivors.length;
+    const defenderLosses = defendersBefore.length - defenderSurvivors.length;
+    const provinceName = getProvinceName(nextWorldState, provinceId);
+    const attackerNationName = getNationName(nextWorldState, attackerNationId);
+    const defenderNationName = getNationName(nextWorldState, previousProvinceOwnerId);
+    const provinceOwnerAfter =
+      nextWorldState.provinceStates.find((provinceState) => provinceState.provinceId === provinceId)
+        ?.ownerNationId ?? null;
+
+    if (attackerSurvivors.length > 0 && defenderSurvivors.length === 0) {
       messages.unshift(
-        `${attackerNationName} ${attackerUnitTypeName} won at ${provinceName}; ${defenderNationName} ${defenderUnitTypeName} destroyed, survivor strength ${attackerAfter.currentStrength}, province captured.`,
+        `${attackerNationName} won at ${provinceName}; attackers lost ${attackerLosses}, defenders lost ${defenderLosses}, surviving strength ${attackerSurvivors.reduce((sum, unit) => sum + unit.currentStrength, 0)}, ${
+          provinceOwnerAfter === attackerNationId ? 'province captured.' : 'province contested.'
+        }`,
       );
       continue;
     }
 
-    const survivingDefender =
-      nextWorldState.units.find((unit) => unit.id === defenderBefore.id && unit.status !== 'destroyed') ?? null;
-
     messages.unshift(
-      `${defenderNationName} ${defenderUnitTypeName} held ${provinceName}; attacking ${attackerNationName} ${attackerUnitTypeName} destroyed${
-        survivingDefender ? `, defender strength ${survivingDefender.currentStrength}` : ''
-      }${
-        provinceOwnerAfter && provinceOwnerAfter !== attackerBefore.nationId ? ', province not captured.' : '.'
-      }`,
+      `${defenderNationName} held ${provinceName}; attackers lost ${attackerLosses}, defenders lost ${defenderLosses}, surviving strength ${defenderSurvivors.reduce((sum, unit) => sum + unit.currentStrength, 0)}.`,
     );
   }
 

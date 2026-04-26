@@ -4,7 +4,8 @@ import {
   calculateAccruedResources,
   createIncomeRateByNation,
   getYieldResourceCodes,
-  resolveCombat,
+  resolveStackCombat,
+  STACK_COMBAT_BATCH_WINDOW_MS,
 } from '@rewar/rules';
 import { PROVINCES, UNIT_TYPES } from '@rewar/shared';
 import { prisma } from '../../db/prisma.js';
@@ -156,6 +157,10 @@ async function captureProvinceIfNeeded(
   return true;
 }
 
+function getMovementBatchWindowEnd(arrivesAt: Date) {
+  return new Date(arrivesAt.getTime() + STACK_COMBAT_BATCH_WINDOW_MS);
+}
+
 export async function resolveSessionToNow(sessionId: string) {
   const now = new Date();
   const session = await prisma.gameSession.findUnique({
@@ -199,47 +204,90 @@ export async function resolveSessionToNow(sessionId: string) {
       const economyChanged = await accrueEconomyTo(tx, sessionId, resolutionTime, provinces);
       stateChanged = stateChanged || economyChanged;
 
-      const attacker = await tx.unit.findUnique({
-        where: { id: order.unitId },
+      const movementBatch = await tx.movementOrder.findMany({
+        where: {
+          sessionId,
+          nationId: order.nationId,
+          toProvinceId: order.toProvinceId,
+          status: 'active',
+          arrivesAt: {
+            lte: new Date(
+              Math.min(now.getTime(), getMovementBatchWindowEnd(order.arrivesAt).getTime()),
+            ),
+          },
+        },
+        orderBy: [{ arrivesAt: 'asc' }, { issuedAt: 'asc' }, { id: 'asc' }],
       });
+      const arrivingUnits = await tx.unit.findMany({
+        where: {
+          id: {
+            in: movementBatch.map((movementOrder) => movementOrder.unitId),
+          },
+        },
+      });
+      const arrivingUnitById = new Map(arrivingUnits.map((unit) => [unit.id, unit]));
+      const validArrivals = movementBatch.filter((movementOrder) => {
+        const unit = arrivingUnitById.get(movementOrder.unitId);
+        return Boolean(unit && unit.status !== 'destroyed');
+      });
+      const invalidArrivalIds = movementBatch
+        .filter((movementOrder) => !validArrivals.some((validOrder) => validOrder.id === movementOrder.id))
+        .map((movementOrder) => movementOrder.id);
 
-      if (!attacker || attacker.status === 'destroyed') {
-        await tx.movementOrder.update({
-          where: { id: order.id },
+      if (invalidArrivalIds.length > 0) {
+        await tx.movementOrder.updateMany({
+          where: {
+            id: {
+              in: invalidArrivalIds,
+            },
+          },
           data: { status: 'cancelled' },
         });
         stateChanged = true;
+      }
+
+      if (validArrivals.length === 0) {
         return;
       }
 
-      const attackerUnitType = unitTypeByCode.get(attacker.unitTypeCode);
-
-      if (!attackerUnitType) {
-        throw new Error(`Unit type ${attacker.unitTypeCode} is not configured.`);
-      }
-
-      const defender = await tx.unit.findFirst({
+      const arrivingAttackers = validArrivals.flatMap((movementOrder) => {
+        const unit = arrivingUnitById.get(movementOrder.unitId);
+        return unit ? [unit] : [];
+      });
+      const currentProvinceState = await tx.provinceState.findUnique({
         where: {
-          sessionId: order.sessionId,
-          provinceId: order.toProvinceId,
-          nationId: {
-            not: order.nationId,
-          },
-          status: {
-            not: 'destroyed',
+          sessionId_provinceId: {
+            sessionId,
+            provinceId: order.toProvinceId,
           },
         },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       });
+      const currentOwnerNationId = currentProvinceState?.ownerNationId ?? null;
+      const defenders =
+        currentOwnerNationId && currentOwnerNationId !== order.nationId
+          ? await tx.unit.findMany({
+              where: {
+                sessionId: order.sessionId,
+                provinceId: order.toProvinceId,
+                nationId: currentOwnerNationId,
+                status: {
+                  not: 'destroyed',
+                },
+              },
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            })
+          : [];
 
-      if (!defender) {
-        await tx.unit.update({
-          where: { id: attacker.id },
-          data: {
-            provinceId: order.toProvinceId,
-            status: 'idle',
-          },
-        });
+      if (defenders.length === 0) {
+        for (const movementOrder of validArrivals) {
+          await tx.unit.update({
+            where: { id: movementOrder.unitId },
+            data: {
+              provinceId: movementOrder.toProvinceId,
+              status: 'idle',
+            },
+          });
+        }
 
         await captureProvinceIfNeeded(
           tx,
@@ -250,8 +298,12 @@ export async function resolveSessionToNow(sessionId: string) {
           provinceById,
         );
 
-        await tx.movementOrder.update({
-          where: { id: order.id },
+        await tx.movementOrder.updateMany({
+          where: {
+            id: {
+              in: validArrivals.map((movementOrder) => movementOrder.id),
+            },
+          },
           data: { status: 'arrived' },
         });
 
@@ -259,31 +311,47 @@ export async function resolveSessionToNow(sessionId: string) {
         return;
       }
 
-      const defenderUnitType = unitTypeByCode.get(defender.unitTypeCode);
+      const stackCombatResult = resolveStackCombat(arrivingAttackers, defenders, unitTypeByCode);
+      const attackerOutcomeByUnitId = new Map(
+        stackCombatResult.attackerOutcomes.map((outcome) => [outcome.unitId, outcome]),
+      );
+      const defenderOutcomeByUnitId = new Map(
+        stackCombatResult.defenderOutcomes.map((outcome) => [outcome.unitId, outcome]),
+      );
 
-      if (!defenderUnitType) {
-        throw new Error(`Unit type ${defender.unitTypeCode} is not configured.`);
-      }
+      if (stackCombatResult.winner === 'attacker') {
+        for (const attacker of arrivingAttackers) {
+          const attackerOutcome = attackerOutcomeByUnitId.get(attacker.id);
 
-      const combatResult = resolveCombat(attacker, defender, attackerUnitType, defenderUnitType);
+          if (!attackerOutcome) {
+            continue;
+          }
 
-      if (combatResult.winner === 'attacker') {
-        await tx.unit.update({
-          where: { id: defender.id },
-          data: {
-            status: 'destroyed',
-            currentStrength: 0,
-          },
-        });
+          await tx.unit.update({
+            where: { id: attacker.id },
+            data: attackerOutcome.destroyed
+              ? {
+                  provinceId: order.toProvinceId,
+                  status: 'destroyed',
+                  currentStrength: 0,
+                }
+              : {
+                  provinceId: order.toProvinceId,
+                  status: 'idle',
+                  currentStrength: attackerOutcome.survivingStrength,
+                },
+          });
+        }
 
-        await tx.unit.update({
-          where: { id: attacker.id },
-          data: {
-            provinceId: order.toProvinceId,
-            status: 'idle',
-            currentStrength: combatResult.survivingStrength,
-          },
-        });
+        for (const defender of defenders) {
+          await tx.unit.update({
+            where: { id: defender.id },
+            data: {
+              status: 'destroyed',
+              currentStrength: 0,
+            },
+          });
+        }
 
         await captureProvinceIfNeeded(
           tx,
@@ -294,24 +362,43 @@ export async function resolveSessionToNow(sessionId: string) {
           provinceById,
         );
       } else {
-        await tx.unit.update({
-          where: { id: attacker.id },
-          data: {
-            status: 'destroyed',
-            currentStrength: 0,
-          },
-        });
+        for (const movementOrder of validArrivals) {
+          await tx.unit.update({
+            where: { id: movementOrder.unitId },
+            data: {
+              status: 'destroyed',
+              currentStrength: 0,
+            },
+          });
+        }
 
-        await tx.unit.update({
-          where: { id: defender.id },
-          data: {
-            currentStrength: combatResult.survivingStrength,
-          },
-        });
+        for (const defender of defenders) {
+          const defenderOutcome = defenderOutcomeByUnitId.get(defender.id);
+
+          if (!defenderOutcome) {
+            continue;
+          }
+
+          await tx.unit.update({
+            where: { id: defender.id },
+            data: defenderOutcome.destroyed
+              ? {
+                  status: 'destroyed',
+                  currentStrength: 0,
+                }
+              : {
+                  currentStrength: defenderOutcome.survivingStrength,
+                },
+          });
+        }
       }
 
-      await tx.movementOrder.update({
-        where: { id: order.id },
+      await tx.movementOrder.updateMany({
+        where: {
+          id: {
+            in: validArrivals.map((movementOrder) => movementOrder.id),
+          },
+        },
         data: { status: 'arrived' },
       });
 
