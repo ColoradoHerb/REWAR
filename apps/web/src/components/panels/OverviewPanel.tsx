@@ -1,5 +1,11 @@
 import type { CSSProperties, PropsWithChildren } from 'react';
-import type { NationResourceBalance, ResourceCode, UnitTypeCode, WorldState } from '@rewar/shared';
+import type {
+  NationResourceBalance,
+  ResourceCode,
+  TerrainType,
+  UnitTypeCode,
+  WorldState,
+} from '@rewar/shared';
 import { createIncomeRateByNation } from '@rewar/rules';
 
 type OverviewPanelProps = {
@@ -34,6 +40,52 @@ function formatYieldPerMinute(baseYield: Partial<Record<ResourceCode, number>>) 
     .map(([resourceCode, amount]) => `${resourceCode} +${amount}/min`)
     .join(', ');
 }
+
+function formatTerrainLabel(terrainType: TerrainType) {
+  switch (terrainType) {
+    case 'plains':
+      return 'Plains';
+    case 'hills':
+      return 'Hills';
+    case 'mountains':
+      return 'Mountains';
+    case 'forest':
+      return 'Forest';
+    default:
+      return terrainType;
+  }
+}
+
+const terrainLegendItems: Array<{
+  terrainType: TerrainType;
+  label: string;
+  swatchBackground: string;
+}> = [
+  {
+    terrainType: 'plains',
+    label: 'Plains overlay',
+    swatchBackground:
+      'radial-gradient(circle at 4px 4px, rgba(239, 227, 184, 0.95) 0 1px, transparent 1.4px), #1a222d',
+  },
+  {
+    terrainType: 'hills',
+    label: 'Hills overlay',
+    swatchBackground:
+      'repeating-linear-gradient(-25deg, rgba(223, 207, 171, 0.55) 0 2px, transparent 2px 8px), #1a222d',
+  },
+  {
+    terrainType: 'mountains',
+    label: 'Mountains overlay',
+    swatchBackground:
+      'repeating-linear-gradient(135deg, rgba(239, 227, 184, 0.6) 0 2px, transparent 2px 9px), #1a222d',
+  },
+  {
+    terrainType: 'forest',
+    label: 'Forest overlay',
+    swatchBackground:
+      'radial-gradient(circle at 5px 5px, rgba(183, 214, 176, 0.9) 0 1.2px, transparent 1.4px), radial-gradient(circle at 11px 10px, rgba(215, 230, 204, 0.72) 0 1.2px, transparent 1.5px), #1a222d',
+  },
+];
 
 const panelStyle: CSSProperties = {
   border: '1px solid #2d3946',
@@ -434,7 +486,7 @@ export function OverviewPanel({
                   }}
                 >
                     {[
-                      { label: 'Terrain', value: selectedProvince.terrainType },
+                      { label: 'Terrain', value: formatTerrainLabel(selectedProvince.terrainType) },
                       { label: 'Yield', value: formatYieldPerMinute(selectedProvince.baseYield) || 'None' },
                       { label: 'Production Center', value: selectedProvince.isProductionCenter ? 'Yes' : 'No' },
                       { label: 'Units Present', value: selectedProvinceUnits.length },
@@ -747,8 +799,27 @@ export function OverviewPanel({
                 <span style={{ fontSize: 13 }}>{item.label}</span>
               </div>
             ))}
+            {terrainLegendItems.map((item) => (
+              <div key={item.terrainType} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 16,
+                    height: 16,
+                    borderRadius: 4,
+                    background: item.swatchBackground,
+                    border: '1px solid #e2e8f0',
+                    display: 'inline-block',
+                  }}
+                />
+                <span style={{ fontSize: 13 }}>{item.label}</span>
+              </div>
+            ))}
             <div style={{ fontSize: 13, color: '#cbd5e1' }}>
               Unit counters use military-style rectangular markers with <strong>I</strong>, <strong>A</strong>, and <strong>T</strong> symbols. A badge shows stack size when more than one unit occupies a province.
+            </div>
+            <div style={{ fontSize: 12, color: '#94a3b8' }}>
+              Terrain overlays intensify at higher zoom and do not affect gameplay yet.
             </div>
           </div>
         </PanelSection>

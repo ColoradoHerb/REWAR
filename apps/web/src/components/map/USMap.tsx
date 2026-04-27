@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { isAdjacentProvinceMove } from '@rewar/rules';
-import type { WorldState } from '@rewar/shared';
+import type { TerrainType, WorldState } from '@rewar/shared';
 import { US48_BORDER_PATHS, US48_STATE_PATHS } from './us48SvgData';
 import { MAP_HIGH_ZOOM_THRESHOLD, MAP_LOW_ZOOM_THRESHOLD, MapViewport } from './MapViewport';
 import type { StrategyMapProps } from './types';
@@ -86,6 +86,10 @@ const MAP_DOUBLE_CLICK_DELAY_MS = 210;
 
 function getProvinceLabel(province: WorldState['provinces'][number]) {
   return province.labelShort ?? province.name.slice(0, 2).toUpperCase();
+}
+
+function getTerrainPatternId(terrainType: TerrainType) {
+  return `terrain-${terrainType}`;
 }
 
 function clamp01(value: number) {
@@ -294,6 +298,7 @@ export function USMap({
           const fullNameFadeEnd = MAP_HIGH_ZOOM_THRESHOLD - 0.11;
           const counterZoomScale = getCounterZoomScale(zoomLevel);
           const isHighZoom = zoomLevel >= MAP_HIGH_ZOOM_THRESHOLD;
+          const terrainOverlayOpacity = clamp01((zoomLevel - 1.08) / 0.92) * 0.16;
 
           return (
             <>
@@ -301,6 +306,26 @@ export function USMap({
                 <pattern id="us48-war-grid" width="18" height="18" patternUnits="userSpaceOnUse">
                   <path d="M 18 0 L 0 0 0 18" fill="none" stroke="#23303d" strokeWidth="0.8" opacity="0.3" />
                   <path d="M 0 18 L 18 0" fill="none" stroke="#17212b" strokeWidth="0.8" opacity="0.22" />
+                </pattern>
+                <pattern id="terrain-plains" width="18" height="18" patternUnits="userSpaceOnUse">
+                  <circle cx="4" cy="4" r="1.1" fill="#efe3b8" opacity="0.82" />
+                  <circle cx="13.5" cy="8.5" r="1" fill="#e8d89d" opacity="0.66" />
+                  <circle cx="7" cy="14" r="0.9" fill="#efe3b8" opacity="0.56" />
+                </pattern>
+                <pattern id="terrain-hills" width="18" height="18" patternUnits="userSpaceOnUse">
+                  <path d="M 0 14 C 4 10, 8 10, 12 14 S 20 18, 24 14" fill="none" stroke="#dfcfab" strokeWidth="1.1" opacity="0.78" />
+                  <path d="M -3 6 C 1 2, 5 2, 9 6 S 17 10, 21 6" fill="none" stroke="#cab793" strokeWidth="0.95" opacity="0.62" />
+                </pattern>
+                <pattern id="terrain-mountains" width="24" height="18" patternUnits="userSpaceOnUse">
+                  <path d="M 0 15 L 4 7 L 8 15" fill="none" stroke="#efe3b8" strokeWidth="1.05" opacity="0.78" strokeLinejoin="round" />
+                  <path d="M 8 15 L 13 4 L 18 15" fill="none" stroke="#dbc89e" strokeWidth="1.15" opacity="0.8" strokeLinejoin="round" />
+                  <path d="M 17 15 L 20.5 8.5 L 24 15" fill="none" stroke="#bfa983" strokeWidth="0.95" opacity="0.62" strokeLinejoin="round" />
+                </pattern>
+                <pattern id="terrain-forest" width="18" height="18" patternUnits="userSpaceOnUse">
+                  <path d="M 4 13 L 6.4 8.2 L 8.8 13 Z" fill="#b9d3b0" opacity="0.78" />
+                  <path d="M 10 9 L 12.2 4.6 L 14.4 9 Z" fill="#d7e6cc" opacity="0.66" />
+                  <path d="M 11.9 9 L 11.9 12.4" stroke="#7b8f6c" strokeWidth="0.8" opacity="0.7" />
+                  <path d="M 6.4 13 L 6.4 15.2" stroke="#7b8f6c" strokeWidth="0.8" opacity="0.66" />
                 </pattern>
               </defs>
 
@@ -338,6 +363,22 @@ export function USMap({
                     />
                     <title>{renderData.province.name}</title>
                   </g>
+                ))}
+              </g>
+
+              <g
+                pointerEvents="none"
+                aria-label="terrain overlays"
+                opacity={terrainOverlayOpacity}
+                style={{ transition: 'opacity 160ms ease' }}
+              >
+                {provinceRenderData.map((renderData) => (
+                  <path
+                    key={`terrain-${renderData.province.id}`}
+                    d={renderData.pathData}
+                    fill={`url(#${getTerrainPatternId(renderData.province.terrainType)})`}
+                    stroke="none"
+                  />
                 ))}
               </g>
 

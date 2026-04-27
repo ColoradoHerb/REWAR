@@ -2,8 +2,6 @@ import type { Province, ResourceAmountMap, TerrainType, UnitTypeCode } from '../
 import { STARTER_WORLD_ID, US48_WORLD_ID } from '../constants';
 import { US48_STATE_LAYOUT } from './us48StateLayout';
 
-const US48_URBAN_STATES = new Set(['ca', 'wa', 'tx', 'il', 'pa', 'ga', 'ny', 'fl', 'nj', 'ma', 'oh']);
-const US48_HILLS_STATES = new Set(['az', 'co', 'id', 'mt', 'nv', 'nm', 'ut', 'wy', 'wv', 'vt', 'nh', 'me', 'ky', 'tn', 'va']);
 const US48_FOOD_RICH_STATES = new Set(['ca', 'tx', 'fl', 'wa', 'or', 'nc', 'ga', 'ia', 'ne', 'ks', 'mn', 'wi', 'il', 'mo', 'ar', 'la']);
 const US48_METAL_HEAVY_STATES = new Set(['pa', 'oh', 'mi', 'il']);
 const US48_METAL_STATES = new Set(['in', 'wi', 'mn', 'mo', 'co', 'az', 'ut', 'nv', 'wv', 'ma', 'ny', 'nj', 'ct', 'ri', 'de', 'md']);
@@ -20,16 +18,59 @@ const US48_BUILDABLE_UNIT_TYPES_BY_STATE: Partial<Record<string, UnitTypeCode[]>
   ny: ['infantry', 'artillery'],
 };
 
+const US48_TERRAIN_BY_STATE: Record<string, TerrainType> = {
+  al: 'forest',
+  az: 'mountains',
+  ar: 'hills',
+  ca: 'mountains',
+  co: 'mountains',
+  ct: 'forest',
+  de: 'plains',
+  fl: 'forest',
+  ga: 'forest',
+  id: 'mountains',
+  il: 'plains',
+  in: 'plains',
+  ia: 'plains',
+  ks: 'plains',
+  ky: 'hills',
+  la: 'forest',
+  me: 'forest',
+  md: 'hills',
+  ma: 'forest',
+  mi: 'forest',
+  mn: 'forest',
+  ms: 'forest',
+  mo: 'hills',
+  mt: 'mountains',
+  ne: 'plains',
+  nv: 'mountains',
+  nh: 'forest',
+  nj: 'forest',
+  nm: 'mountains',
+  ny: 'forest',
+  nc: 'hills',
+  nd: 'plains',
+  oh: 'plains',
+  ok: 'plains',
+  or: 'forest',
+  pa: 'hills',
+  ri: 'forest',
+  sc: 'forest',
+  sd: 'plains',
+  tn: 'hills',
+  tx: 'plains',
+  ut: 'mountains',
+  vt: 'forest',
+  va: 'hills',
+  wa: 'forest',
+  wv: 'hills',
+  wi: 'forest',
+  wy: 'mountains',
+};
+
 function getUS48TerrainType(code: string): TerrainType {
-  if (US48_URBAN_STATES.has(code)) {
-    return 'urban';
-  }
-
-  if (US48_HILLS_STATES.has(code)) {
-    return 'hills';
-  }
-
-  return 'plains';
+  return US48_TERRAIN_BY_STATE[code] ?? 'plains';
 }
 
 function getUS48BuildableUnitTypes(code: string): UnitTypeCode[] {
@@ -64,7 +105,7 @@ export const STARTER_PROVINCES: Province[] = [
     shapeKey: 'north-fen',
     centroidX: 90,
     centroidY: 75,
-    terrainType: 'plains',
+    terrainType: 'forest',
     isProductionCenter: false,
     buildableUnitTypes: [],
     baseYield: { food: 4 },
@@ -76,7 +117,7 @@ export const STARTER_PROVINCES: Province[] = [
     shapeKey: 'riverbend',
     centroidX: 240,
     centroidY: 75,
-    terrainType: 'urban',
+    terrainType: 'plains',
     isProductionCenter: true,
     buildableUnitTypes: ['infantry', 'artillery'],
     baseYield: { food: 5 },
@@ -100,7 +141,7 @@ export const STARTER_PROVINCES: Province[] = [
     shapeKey: 'blackharbor',
     centroidX: 550,
     centroidY: 75,
-    terrainType: 'urban',
+    terrainType: 'forest',
     isProductionCenter: false,
     buildableUnitTypes: [],
     baseYield: { metal: 4 },
@@ -124,7 +165,7 @@ export const STARTER_PROVINCES: Province[] = [
     shapeKey: 'stonegate',
     centroidX: 240,
     centroidY: 205,
-    terrainType: 'urban',
+    terrainType: 'hills',
     isProductionCenter: true,
     buildableUnitTypes: ['infantry', 'artillery', 'armor'],
     baseYield: { fuel: 3 },
@@ -136,7 +177,7 @@ export const STARTER_PROVINCES: Province[] = [
     shapeKey: 'emberplain',
     centroidX: 400,
     centroidY: 205,
-    terrainType: 'urban',
+    terrainType: 'plains',
     isProductionCenter: true,
     buildableUnitTypes: ['infantry', 'artillery', 'armor'],
     baseYield: { fuel: 3 },
@@ -148,7 +189,7 @@ export const STARTER_PROVINCES: Province[] = [
     shapeKey: 'northhold',
     centroidX: 550,
     centroidY: 205,
-    terrainType: 'urban',
+    terrainType: 'forest',
     isProductionCenter: true,
     buildableUnitTypes: ['infantry', 'artillery'],
     baseYield: { food: 5 },
@@ -184,7 +225,7 @@ export const STARTER_PROVINCES: Province[] = [
     shapeKey: 'red-mesa',
     centroidX: 400,
     centroidY: 345,
-    terrainType: 'hills',
+    terrainType: 'mountains',
     isProductionCenter: false,
     buildableUnitTypes: [],
     baseYield: { metal: 4 },
