@@ -1,10 +1,10 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { STARTER_WORLD_ID, US48_WORLD_ID } from '@rewar/shared';
+import { STARTER_WORLD_ID, US48_SUB_WORLD_ID, US48_WORLD_ID } from '@rewar/shared';
 import { createSeededSession } from '../modules/session/index.js';
 
 const createSessionSchema = z.object({
-  seedWorldId: z.enum([STARTER_WORLD_ID, US48_WORLD_ID]).default(US48_WORLD_ID),
+  seedWorldId: z.enum([STARTER_WORLD_ID, US48_WORLD_ID, US48_SUB_WORLD_ID]).default(US48_WORLD_ID),
   replaceSessionId: z.string().min(1).optional(),
 });
 

@@ -1,5 +1,5 @@
 import type { Province, ResourceAmountMap, TerrainType, UnitTypeCode } from '../types/game';
-import { STARTER_WORLD_ID, US48_WORLD_ID } from '../constants';
+import { STARTER_WORLD_ID, US48_SUB_WORLD_ID, US48_WORLD_ID } from '../constants';
 import { US48_STATE_LAYOUT } from './us48StateLayout';
 
 const US48_FOOD_RICH_STATES = new Set(['ca', 'tx', 'fl', 'wa', 'or', 'nc', 'ga', 'ia', 'ne', 'ks', 'mn', 'wi', 'il', 'mo', 'ar', 'la']);
@@ -95,6 +95,29 @@ function getUS48BaseYield(code: string): ResourceAmountMap {
   }
 
   return baseYield;
+}
+
+function createUS48StateProvince(
+  state: (typeof US48_STATE_LAYOUT)[number],
+  mapId: string,
+): Province {
+  const buildableUnitTypes = getUS48BuildableUnitTypes(state.code);
+
+  return {
+    id: `us-${state.code}`,
+    mapId,
+    name: state.name,
+    labelShort: state.labelShort,
+    shapeKey: `us-${state.code}`,
+    centroidX: state.centroidX,
+    centroidY: state.centroidY,
+    labelX: state.labelX,
+    labelY: state.labelY,
+    terrainType: getUS48TerrainType(state.code),
+    isProductionCenter: buildableUnitTypes.length > 0,
+    buildableUnitTypes,
+    baseYield: getUS48BaseYield(state.code),
+  };
 }
 
 export const STARTER_PROVINCES: Province[] = [
@@ -244,24 +267,194 @@ export const STARTER_PROVINCES: Province[] = [
   },
 ];
 
-export const US48_V1_PROVINCES: Province[] = US48_STATE_LAYOUT.map((state) => {
-  const buildableUnitTypes = getUS48BuildableUnitTypes(state.code);
+export const US48_V1_PROVINCES: Province[] = US48_STATE_LAYOUT.map((state) =>
+  createUS48StateProvince(state, US48_WORLD_ID),
+);
 
-  return {
-    id: `us-${state.code}`,
-    mapId: US48_WORLD_ID,
-    name: state.name,
-    labelShort: state.labelShort,
-    shapeKey: `us-${state.code}`,
-    centroidX: state.centroidX,
-    centroidY: state.centroidY,
-    labelX: state.labelX,
-    labelY: state.labelY,
-    terrainType: getUS48TerrainType(state.code),
-    isProductionCenter: buildableUnitTypes.length > 0,
-    buildableUnitTypes,
-    baseYield: getUS48BaseYield(state.code),
-  };
-});
+const US48_SUB_V1_PILOT_PARENT_STATE_IDS = new Set(['us-co', 'us-pa', 'us-tx']);
 
-export const PROVINCES: Province[] = [...STARTER_PROVINCES, ...US48_V1_PROVINCES];
+export const US48_SUB_V1_PILOT_PROVINCES: Province[] = [
+  {
+    id: 'us-co-west-slope',
+    mapId: US48_SUB_WORLD_ID,
+    parentStateId: 'us-co',
+    parentStateName: 'Colorado',
+    name: 'Western Slope',
+    labelShort: 'WS',
+    shapeKey: 'us-co-west-slope',
+    centroidX: 281,
+    centroidY: 272,
+    labelX: 279,
+    labelY: 287,
+    terrainType: 'mountains',
+    isProductionCenter: false,
+    buildableUnitTypes: [],
+    baseYield: { metal: 1 },
+  },
+  {
+    id: 'us-co-front-range',
+    mapId: US48_SUB_WORLD_ID,
+    parentStateId: 'us-co',
+    parentStateName: 'Colorado',
+    name: 'Front Range',
+    labelShort: 'FR',
+    shapeKey: 'us-co-front-range',
+    centroidX: 320,
+    centroidY: 272,
+    labelX: 319,
+    labelY: 292,
+    terrainType: 'hills',
+    isProductionCenter: true,
+    buildableUnitTypes: ['infantry', 'artillery'],
+    baseYield: { food: 1, fuel: 1 },
+  },
+  {
+    id: 'us-co-eastern-plains',
+    mapId: US48_SUB_WORLD_ID,
+    parentStateId: 'us-co',
+    parentStateName: 'Colorado',
+    name: 'Eastern Plains',
+    labelShort: 'EP',
+    shapeKey: 'us-co-eastern-plains',
+    centroidX: 352,
+    centroidY: 272,
+    labelX: 353,
+    labelY: 288,
+    terrainType: 'plains',
+    isProductionCenter: false,
+    buildableUnitTypes: [],
+    baseYield: {},
+  },
+  {
+    id: 'us-pa-west',
+    mapId: US48_SUB_WORLD_ID,
+    parentStateId: 'us-pa',
+    parentStateName: 'Pennsylvania',
+    name: 'Western Pennsylvania',
+    labelShort: 'PW',
+    shapeKey: 'us-pa-west',
+    centroidX: 756,
+    centroidY: 212,
+    labelX: 754,
+    labelY: 229,
+    terrainType: 'hills',
+    isProductionCenter: false,
+    buildableUnitTypes: [],
+    baseYield: { metal: 1 },
+  },
+  {
+    id: 'us-pa-central-ridge',
+    mapId: US48_SUB_WORLD_ID,
+    parentStateId: 'us-pa',
+    parentStateName: 'Pennsylvania',
+    name: 'Central Ridge',
+    labelShort: 'CR',
+    shapeKey: 'us-pa-central-ridge',
+    centroidX: 786,
+    centroidY: 212,
+    labelX: 787,
+    labelY: 228,
+    terrainType: 'hills',
+    isProductionCenter: false,
+    buildableUnitTypes: [],
+    baseYield: { food: 1 },
+  },
+  {
+    id: 'us-pa-east',
+    mapId: US48_SUB_WORLD_ID,
+    parentStateId: 'us-pa',
+    parentStateName: 'Pennsylvania',
+    name: 'Eastern Pennsylvania',
+    labelShort: 'PE',
+    shapeKey: 'us-pa-east',
+    centroidX: 818,
+    centroidY: 211,
+    labelX: 821,
+    labelY: 228,
+    terrainType: 'forest',
+    isProductionCenter: true,
+    buildableUnitTypes: ['infantry', 'artillery', 'armor'],
+    baseYield: { metal: 1, fuel: 1 },
+  },
+  {
+    id: 'us-tx-panhandle-north',
+    mapId: US48_SUB_WORLD_ID,
+    parentStateId: 'us-tx',
+    parentStateName: 'Texas',
+    name: 'Panhandle North',
+    labelShort: 'PN',
+    shapeKey: 'us-tx-panhandle-north',
+    centroidX: 411,
+    centroidY: 455,
+    labelX: 411,
+    labelY: 457,
+    terrainType: 'plains',
+    isProductionCenter: false,
+    buildableUnitTypes: [],
+    baseYield: { food: 1 },
+  },
+  {
+    id: 'us-tx-west',
+    mapId: US48_SUB_WORLD_ID,
+    parentStateId: 'us-tx',
+    parentStateName: 'Texas',
+    name: 'West Texas',
+    labelShort: 'WT',
+    shapeKey: 'us-tx-west',
+    centroidX: 347,
+    centroidY: 525,
+    labelX: 347,
+    labelY: 528,
+    terrainType: 'plains',
+    isProductionCenter: false,
+    buildableUnitTypes: [],
+    baseYield: { fuel: 1 },
+  },
+  {
+    id: 'us-tx-central-hills',
+    mapId: US48_SUB_WORLD_ID,
+    parentStateId: 'us-tx',
+    parentStateName: 'Texas',
+    name: 'Central Hills',
+    labelShort: 'CH',
+    shapeKey: 'us-tx-central-hills',
+    centroidX: 430,
+    centroidY: 527,
+    labelX: 430,
+    labelY: 530,
+    terrainType: 'hills',
+    isProductionCenter: true,
+    buildableUnitTypes: ['infantry', 'artillery', 'armor'],
+    baseYield: { food: 1 },
+  },
+  {
+    id: 'us-tx-east',
+    mapId: US48_SUB_WORLD_ID,
+    parentStateId: 'us-tx',
+    parentStateName: 'Texas',
+    name: 'East Texas',
+    labelShort: 'ET',
+    shapeKey: 'us-tx-east',
+    centroidX: 518,
+    centroidY: 512,
+    labelX: 518,
+    labelY: 515,
+    terrainType: 'forest',
+    isProductionCenter: false,
+    buildableUnitTypes: [],
+    baseYield: { fuel: 1 },
+  },
+];
+
+export const US48_SUB_V1_PROVINCES: Province[] = [
+  ...US48_STATE_LAYOUT
+    .filter((state) => !US48_SUB_V1_PILOT_PARENT_STATE_IDS.has(`us-${state.code}`))
+    .map((state) => createUS48StateProvince(state, US48_SUB_WORLD_ID)),
+  ...US48_SUB_V1_PILOT_PROVINCES,
+];
+
+export const PROVINCES: Province[] = [
+  ...STARTER_PROVINCES,
+  ...US48_V1_PROVINCES,
+  ...US48_SUB_V1_PROVINCES,
+];

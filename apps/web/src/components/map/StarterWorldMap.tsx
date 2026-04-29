@@ -7,7 +7,9 @@ import {
   ProductionIcon,
   UnitCounter,
   WAR_MAP_THEME,
-  getMutedNationFill,
+  getOwnershipTintFill,
+  getOwnershipTintOpacity,
+  getTerrainBaseFill,
 } from './warMapTheme';
 
 const MAP_DOUBLE_CLICK_DELAY_MS = 210;
@@ -167,13 +169,13 @@ export function StarterWorldMap({
             <>
               <defs>
                 <pattern id="starter-war-grid" width="20" height="20" patternUnits="userSpaceOnUse">
-                  <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#23303d" strokeWidth="0.9" opacity="0.3" />
-                  <path d="M 0 20 L 20 0" fill="none" stroke="#17212b" strokeWidth="0.8" opacity="0.22" />
+                  <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#273229" strokeWidth="0.7" opacity="0.14" />
+                  <path d="M 0 20 L 20 0" fill="none" stroke="#182018" strokeWidth="0.65" opacity="0.09" />
                 </pattern>
               </defs>
 
               <rect width="640" height="420" fill={WAR_MAP_THEME.background} />
-              <rect width="640" height="420" fill="url(#starter-war-grid)" opacity={0.5} />
+              <rect width="640" height="420" fill="url(#starter-war-grid)" opacity={0.2} />
 
               {worldState.provinces.map((province) => {
                 const provinceState = provinceStateById.get(province.id);
@@ -186,7 +188,9 @@ export function StarterWorldMap({
                   selectedGroupOriginProvinceId !== province.id &&
                   isAdjacentProvinceMove(selectedGroupOriginProvinceId, province.id, worldState.edges);
                 const isHoveredProvince = hoveredProvinceId === province.id;
-                const provinceFill = getMutedNationFill(ownerNation);
+                const provinceFill = getTerrainBaseFill(province.terrainType);
+                const ownershipTintFill = getOwnershipTintFill(ownerNation);
+                const ownershipTintOpacity = getOwnershipTintOpacity(ownerNation, isHoveredProvince);
                 const provinceStroke = isSelectedProvince
                   ? WAR_MAP_THEME.selectedOutline
                   : isAdjacentTarget
@@ -227,9 +231,9 @@ export function StarterWorldMap({
                       rx={8}
                       ry={8}
                       fill={provinceFill}
-                      fillOpacity={isHoveredProvince ? 0.96 : ownerNation ? 0.9 : 1}
+                      fillOpacity={1}
                       stroke={provinceStroke}
-                      strokeWidth={isSelectedProvince ? 4 : isAdjacentTarget ? 3 : isHoveredProvince ? 2.6 : 2}
+                      strokeWidth={isSelectedProvince ? 3 : isAdjacentTarget ? 2.2 : isHoveredProvince ? 1.6 : 1.05}
                       strokeDasharray={isAdjacentTarget ? '8 5' : undefined}
                       style={{ cursor: 'pointer' }}
                       onMouseEnter={() => setHoveredProvinceId(province.id)}
@@ -239,6 +243,19 @@ export function StarterWorldMap({
                       onClick={() => handleProvinceClick(province.id)}
                       onDoubleClick={() => handleProvinceDoubleClick(province.id)}
                     />
+                    {ownershipTintOpacity > 0 ? (
+                      <rect
+                        x={x}
+                        y={y}
+                        width={width}
+                        height={height}
+                        rx={8}
+                        ry={8}
+                        fill={ownershipTintFill}
+                        fillOpacity={ownershipTintOpacity}
+                        pointerEvents="none"
+                      />
+                    ) : null}
                     <title>{province.name}</title>
                     <text
                       x={province.centroidX}

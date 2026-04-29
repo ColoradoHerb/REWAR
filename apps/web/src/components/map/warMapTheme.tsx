@@ -1,4 +1,4 @@
-import type { Nation, Unit, UnitTypeCode } from '@rewar/shared';
+import type { Nation, TerrainType, Unit, UnitTypeCode } from '@rewar/shared';
 
 export const WAR_MAP_THEME = {
   background: '#111821',
@@ -6,8 +6,8 @@ export const WAR_MAP_THEME = {
   panelBorder: '#2d3946',
   neutralFill: '#2a3440',
   neutralAccent: '#44505f',
-  stateBorder: '#161d25',
-  stateInnerBorder: '#24303d',
+  stateBorder: '#334033',
+  stateInnerBorder: '#52604d',
   selectedOutline: '#efe1af',
   selectedGlow: '#f5edd0',
   moveOutline: '#7b9aac',
@@ -62,6 +62,33 @@ function mixHexColors(fromHex: string, toHex: string, weight: number) {
   const mix = (left: number, right: number) => left + (right - left) * weight;
 
   return toHexColor(mix(from.red, to.red), mix(from.green, to.green), mix(from.blue, to.blue));
+}
+
+export function getTerrainBaseFill(terrainType: TerrainType) {
+  switch (terrainType) {
+    case 'plains':
+      return '#5f7449';
+    case 'hills':
+      return '#776a42';
+    case 'mountains':
+      return '#766f63';
+    case 'forest':
+      return '#385f3c';
+    default:
+      return WAR_MAP_THEME.neutralFill;
+  }
+}
+
+export function getOwnershipTintFill(nation?: Nation | null) {
+  return nation?.colorHex ?? 'transparent';
+}
+
+export function getOwnershipTintOpacity(nation?: Nation | null, isHovered = false) {
+  if (!nation) {
+    return 0;
+  }
+
+  return isHovered ? 0.34 : 0.27;
 }
 
 export function getMutedNationFill(nation?: Nation | null) {

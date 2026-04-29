@@ -126,6 +126,46 @@ const us48UndirectedEdges = [
   ['us-va', 'us-wv'],
 ] as const;
 
+const us48SubPilotParentProvinceIds = new Set(['us-co', 'us-pa', 'us-tx']);
+
+const us48SubPilotUndirectedEdges = [
+  ['us-co-west-slope', 'us-co-front-range'],
+  ['us-co-front-range', 'us-co-eastern-plains'],
+  ['us-co-west-slope', 'us-ut'],
+  ['us-co-west-slope', 'us-wy'],
+  ['us-co-front-range', 'us-wy'],
+  ['us-co-front-range', 'us-nm'],
+  ['us-co-eastern-plains', 'us-ks'],
+  ['us-co-eastern-plains', 'us-ne'],
+
+  ['us-pa-west', 'us-pa-central-ridge'],
+  ['us-pa-central-ridge', 'us-pa-east'],
+  ['us-pa-west', 'us-oh'],
+  ['us-pa-west', 'us-wv'],
+  ['us-pa-central-ridge', 'us-ny'],
+  ['us-pa-east', 'us-ny'],
+  ['us-pa-east', 'us-nj'],
+  ['us-pa-east', 'us-md'],
+
+  ['us-tx-panhandle-north', 'us-tx-west'],
+  ['us-tx-panhandle-north', 'us-tx-central-hills'],
+  ['us-tx-west', 'us-tx-central-hills'],
+  ['us-tx-central-hills', 'us-tx-east'],
+  ['us-tx-panhandle-north', 'us-ok'],
+  ['us-tx-west', 'us-nm'],
+  ['us-tx-east', 'us-ar'],
+  ['us-tx-east', 'us-la'],
+] as const;
+
+const us48SubUndirectedEdges = [
+  ...us48UndirectedEdges.filter(
+    ([fromProvinceId, toProvinceId]) =>
+      !us48SubPilotParentProvinceIds.has(fromProvinceId) &&
+      !us48SubPilotParentProvinceIds.has(toProvinceId),
+  ),
+  ...us48SubPilotUndirectedEdges,
+] as const;
+
 function toDirectedEdges(undirectedEdges: readonly (readonly [string, string])[]): ProvinceEdge[] {
   return undirectedEdges.flatMap(([fromProvinceId, toProvinceId]) => [
     { fromProvinceId, toProvinceId, distance: 1 },
@@ -141,7 +181,12 @@ export const US48_V1_PROVINCE_EDGES: ProvinceEdge[] = toDirectedEdges(
   us48UndirectedEdges,
 );
 
+export const US48_SUB_V1_PROVINCE_EDGES: ProvinceEdge[] = toDirectedEdges(
+  us48SubUndirectedEdges,
+);
+
 export const PROVINCE_EDGES: ProvinceEdge[] = [
   ...STARTER_PROVINCE_EDGES,
   ...US48_V1_PROVINCE_EDGES,
+  ...US48_SUB_V1_PROVINCE_EDGES,
 ];

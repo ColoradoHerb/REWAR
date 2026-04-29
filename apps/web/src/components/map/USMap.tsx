@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { isAdjacentProvinceMove } from '@rewar/rules';
-import type { TerrainType, WorldState } from '@rewar/shared';
+import { US48_SUB_V1_STATE_REGIONS, US48_SUB_WORLD_ID, type WorldState } from '@rewar/shared';
 import { US48_BORDER_PATHS, US48_STATE_PATHS } from './us48SvgData';
+import { US48_SUB_PROVINCE_PATHS } from './us48SubProvinceSvgData';
 import { MAP_HIGH_ZOOM_THRESHOLD, MAP_LOW_ZOOM_THRESHOLD, MapViewport } from './MapViewport';
 import type { StrategyMapProps } from './types';
 import {
   ProductionIcon,
   UnitCounter,
   WAR_MAP_THEME,
-  getMutedNationFill,
+  getOwnershipTintFill,
+  getOwnershipTintOpacity,
+  getTerrainBaseFill,
 } from './warMapTheme';
 
 const SMALL_LABEL_PROVINCE_IDS = new Set([
@@ -58,6 +61,9 @@ const COUNTER_LAYOUT_OVERRIDES: Partial<
   'us-md': { offsetX: 24, offsetY: 16, scale: 0.92 },
   'us-de': { offsetX: 26, offsetY: 10, scale: 0.9 },
   'us-nj': { offsetX: 18, offsetY: 0, scale: 0.92 },
+  'us-pa-west': { offsetX: -8, offsetY: 2, scale: 0.94 },
+  'us-pa-central-ridge': { offsetX: 0, offsetY: 1, scale: 0.92 },
+  'us-pa-east': { offsetX: 8, offsetY: 2, scale: 0.9 },
   'us-ri': { offsetX: 16, offsetY: 8, scale: 0.88 },
   'us-ma': { offsetX: 8, offsetY: -10, scale: 0.94 },
 };
@@ -75,9 +81,12 @@ const PRODUCTION_LAYOUT_OVERRIDES: Partial<
   'us-ca': { offsetX: -18, offsetY: -2, scale: 0.92 },
   'us-wa': { offsetX: -10, offsetY: -8, scale: 0.9 },
   'us-co': { offsetX: -18, offsetY: -16, scale: 0.9 },
+  'us-co-front-range': { offsetX: 10, offsetY: -14, scale: 0.88 },
   'us-tx': { offsetX: -18, offsetY: -18, scale: 0.92 },
+  'us-tx-central-hills': { offsetX: 14, offsetY: -16, scale: 0.9 },
   'us-il': { offsetX: -16, offsetY: -12, scale: 0.88 },
   'us-pa': { offsetX: -18, offsetY: -16, scale: 0.86 },
+  'us-pa-east': { offsetX: 10, offsetY: -12, scale: 0.82 },
   'us-ga': { offsetX: -16, offsetY: -12, scale: 0.9 },
   'us-ny': { offsetX: -18, offsetY: -10, scale: 0.86 },
 };
@@ -88,8 +97,30 @@ function getProvinceLabel(province: WorldState['provinces'][number]) {
   return province.labelShort ?? province.name.slice(0, 2).toUpperCase();
 }
 
-function getTerrainPatternId(terrainType: TerrainType) {
-  return `terrain-${terrainType}`;
+function getProvincePathDefinition(province: WorldState['provinces'][number]) {
+  const subProvinceShape = US48_SUB_PROVINCE_PATHS[province.shapeKey];
+
+  if (subProvinceShape) {
+    return {
+      pathData: subProvinceShape.pathData,
+      clipPathId: `clip-${subProvinceShape.parentStateId}`,
+      parentStateId: subProvinceShape.parentStateId,
+      isSubProvince: true,
+    };
+  }
+
+  const pathData = US48_STATE_PATHS[province.shapeKey];
+
+  if (!pathData) {
+    return null;
+  }
+
+  return {
+    pathData,
+    clipPathId: null,
+    parentStateId: province.parentStateId ?? province.id,
+    isSubProvince: false,
+  };
 }
 
 function clamp01(value: number) {
@@ -123,11 +154,13 @@ export function USMap({
 }: StrategyMapProps) {
   const [hoveredProvinceId, setHoveredProvinceId] = useState<string | null>(null);
   const clickTimerRef = useRef<number | null>(null);
+  const isSubProvinceScenario = worldState.session.seedWorldId === US48_SUB_WORLD_ID;
   const activeUnits = worldState.units.filter((unit) => unit.status !== 'destroyed');
   const nationById = new Map(worldState.nations.map((nation) => [nation.id, nation]));
   const provinceStateById = new Map(
     worldState.provinceStates.map((provinceState) => [provinceState.provinceId, provinceState]),
   );
+  const pilotStateRegions = isSubProvinceScenario ? US48_SUB_V1_STATE_REGIONS : [];
   const selectedUnitIdSet = new Set(selectedUnitIds);
   const selectedUnits = activeUnits.filter((unit) => selectedUnitIdSet.has(unit.id));
   const selectedGroupOriginProvinceId =
@@ -172,9 +205,9 @@ export function USMap({
   };
 
   const provinceRenderData = worldState.provinces.flatMap((province) => {
-    const pathData = US48_STATE_PATHS[province.shapeKey];
+    const pathDefinition = getProvincePathDefinition(province);
 
-    if (!pathData) {
+    if (!pathDefinition) {
       return [];
     }
 
@@ -193,8 +226,9 @@ export function USMap({
       isAdjacentProvinceMove(selectedGroupOriginProvinceId, province.id, worldState.edges);
     const hasSelectedUnitsInProvince = provinceUnits.some((unit) => selectedUnitIdSet.has(unit.id));
     const isHoveredProvince = hoveredProvinceId === province.id;
-    const provinceFill = getMutedNationFill(ownerNation);
-    const provinceOpacity = ownerNation ? (isHoveredProvince ? 0.96 : 0.9) : 1;
+    const provinceFill = getTerrainBaseFill(province.terrainType);
+    const ownershipTintFill = getOwnershipTintFill(ownerNation);
+    const ownershipTintOpacity = getOwnershipTintOpacity(ownerNation, isHoveredProvince);
     const provinceStroke = isSelectedProvince
       ? WAR_MAP_THEME.selectedOutline
       : isAdjacentTarget
@@ -202,7 +236,15 @@ export function USMap({
         : isHoveredProvince
           ? WAR_MAP_THEME.hoverOutline
           : WAR_MAP_THEME.stateBorder;
-    const provinceStrokeWidth = isSelectedProvince ? 3.6 : isAdjacentTarget ? 2.8 : isHoveredProvince ? 2.2 : 1.6;
+    const provinceStrokeWidth = isSelectedProvince
+      ? 3
+      : isAdjacentTarget
+        ? 2.2
+        : isHoveredProvince
+          ? 1.55
+          : pathDefinition.isSubProvince
+            ? 0.65
+            : 1.05;
     const counterLayout = COUNTER_LAYOUT_OVERRIDES[province.id];
     const productionLayout = PRODUCTION_LAYOUT_OVERRIDES[province.id];
     const hitTarget = SMALL_STATE_HIT_TARGETS[province.id];
@@ -210,7 +252,10 @@ export function USMap({
     return [
       {
         province,
-        pathData,
+        pathData: pathDefinition.pathData,
+        clipPathId: pathDefinition.clipPathId,
+        parentStateId: pathDefinition.parentStateId,
+        isSubProvince: pathDefinition.isSubProvince,
         ownerNation,
         provinceUnits,
         unitNation,
@@ -219,7 +264,8 @@ export function USMap({
         hasSelectedUnitsInProvince,
         isHoveredProvince,
         provinceFill,
-        provinceOpacity,
+        ownershipTintFill,
+        ownershipTintOpacity,
         provinceStroke,
         provinceStrokeWidth,
         counterX: province.centroidX + (counterLayout?.offsetX ?? 0),
@@ -258,9 +304,9 @@ export function USMap({
         </div>
         <h2 style={{ margin: 0, fontSize: 24 }}>Contiguous United States</h2>
         <p style={{ color: '#94a3b8', marginBottom: 0, marginTop: 8 }}>
-          Click a state to inspect it. Use the mouse wheel to zoom and drag to pan. Select one or
-          more idle friendly units, then click an adjacent highlighted state to move them.
-          Double-click a state to select all idle friendly units there.
+          Click a state or sub-province to inspect it. Use the mouse wheel to zoom and drag to pan.
+          Select one or more idle friendly units, then click an adjacent highlighted region to move
+          them. Double-click a region to select all idle friendly units there.
         </p>
       </div>
 
@@ -298,39 +344,36 @@ export function USMap({
           const fullNameFadeEnd = MAP_HIGH_ZOOM_THRESHOLD - 0.11;
           const counterZoomScale = getCounterZoomScale(zoomLevel);
           const isHighZoom = zoomLevel >= MAP_HIGH_ZOOM_THRESHOLD;
-          const terrainOverlayOpacity = clamp01((zoomLevel - 1.08) / 0.92) * 0.16;
+          const subProvinceBorderOpacity = isSubProvinceScenario
+            ? 0.36 + clamp01((zoomLevel - 1.26) / 0.42) * 0.22
+            : 0;
+          const pilotRegionLabelOpacity = isSubProvinceScenario
+            ? clamp01((1.78 - zoomLevel) / 0.43)
+            : 0;
+          const subProvinceLabelOpacity = isSubProvinceScenario
+            ? clamp01((zoomLevel - 1.52) / 0.26)
+            : 0;
 
           return (
             <>
               <defs>
                 <pattern id="us48-war-grid" width="18" height="18" patternUnits="userSpaceOnUse">
-                  <path d="M 18 0 L 0 0 0 18" fill="none" stroke="#23303d" strokeWidth="0.8" opacity="0.3" />
-                  <path d="M 0 18 L 18 0" fill="none" stroke="#17212b" strokeWidth="0.8" opacity="0.22" />
+                  <path d="M 18 0 L 0 0 0 18" fill="none" stroke="#273229" strokeWidth="0.7" opacity="0.16" />
+                  <path d="M 0 18 L 18 0" fill="none" stroke="#182018" strokeWidth="0.65" opacity="0.1" />
                 </pattern>
-                <pattern id="terrain-plains" width="18" height="18" patternUnits="userSpaceOnUse">
-                  <circle cx="4" cy="4" r="1.1" fill="#efe3b8" opacity="0.82" />
-                  <circle cx="13.5" cy="8.5" r="1" fill="#e8d89d" opacity="0.66" />
-                  <circle cx="7" cy="14" r="0.9" fill="#efe3b8" opacity="0.56" />
-                </pattern>
-                <pattern id="terrain-hills" width="18" height="18" patternUnits="userSpaceOnUse">
-                  <path d="M 0 14 C 4 10, 8 10, 12 14 S 20 18, 24 14" fill="none" stroke="#dfcfab" strokeWidth="1.1" opacity="0.78" />
-                  <path d="M -3 6 C 1 2, 5 2, 9 6 S 17 10, 21 6" fill="none" stroke="#cab793" strokeWidth="0.95" opacity="0.62" />
-                </pattern>
-                <pattern id="terrain-mountains" width="24" height="18" patternUnits="userSpaceOnUse">
-                  <path d="M 0 15 L 4 7 L 8 15" fill="none" stroke="#efe3b8" strokeWidth="1.05" opacity="0.78" strokeLinejoin="round" />
-                  <path d="M 8 15 L 13 4 L 18 15" fill="none" stroke="#dbc89e" strokeWidth="1.15" opacity="0.8" strokeLinejoin="round" />
-                  <path d="M 17 15 L 20.5 8.5 L 24 15" fill="none" stroke="#bfa983" strokeWidth="0.95" opacity="0.62" strokeLinejoin="round" />
-                </pattern>
-                <pattern id="terrain-forest" width="18" height="18" patternUnits="userSpaceOnUse">
-                  <path d="M 4 13 L 6.4 8.2 L 8.8 13 Z" fill="#b9d3b0" opacity="0.78" />
-                  <path d="M 10 9 L 12.2 4.6 L 14.4 9 Z" fill="#d7e6cc" opacity="0.66" />
-                  <path d="M 11.9 9 L 11.9 12.4" stroke="#7b8f6c" strokeWidth="0.8" opacity="0.7" />
-                  <path d="M 6.4 13 L 6.4 15.2" stroke="#7b8f6c" strokeWidth="0.8" opacity="0.66" />
-                </pattern>
+                {pilotStateRegions.map((stateRegion) => {
+                  const parentPathData = US48_STATE_PATHS[stateRegion.shapeKey];
+
+                  return parentPathData ? (
+                    <clipPath key={`clip-${stateRegion.id}`} id={`clip-${stateRegion.id}`}>
+                      <path d={parentPathData} />
+                    </clipPath>
+                  ) : null;
+                })}
               </defs>
 
               <rect width="959" height="593" fill={WAR_MAP_THEME.background} />
-              <rect width="959" height="593" fill="url(#us48-war-grid)" opacity={0.5} />
+              <rect width="959" height="593" fill="url(#us48-war-grid)" opacity={0.22} />
 
               <g aria-label="state fills">
                 {provinceRenderData.map((renderData) => (
@@ -343,16 +386,18 @@ export function USMap({
                         strokeWidth={6}
                         opacity={0.3}
                         pointerEvents="none"
+                        clipPath={renderData.clipPathId ? `url(#${renderData.clipPathId})` : undefined}
                       />
                     ) : null}
                     <path
                       id={renderData.province.shapeKey}
                       d={renderData.pathData}
                       fill={renderData.provinceFill}
-                      fillOpacity={renderData.provinceOpacity}
+                      fillOpacity={1}
                       stroke={renderData.provinceStroke}
                       strokeWidth={renderData.provinceStrokeWidth}
                       strokeDasharray={renderData.isAdjacentTarget ? '7 4' : undefined}
+                      clipPath={renderData.clipPathId ? `url(#${renderData.clipPathId})` : undefined}
                       style={{ cursor: 'pointer' }}
                       onMouseEnter={() => setHoveredProvinceId(renderData.province.id)}
                       onMouseLeave={() => setHoveredProvinceId((currentHoveredProvinceId) =>
@@ -361,26 +406,42 @@ export function USMap({
                       onClick={() => handleProvinceClick(renderData.province.id)}
                       onDoubleClick={() => handleProvinceDoubleClick(renderData.province.id)}
                     />
+                    {renderData.ownershipTintOpacity > 0 ? (
+                      <path
+                        d={renderData.pathData}
+                        fill={renderData.ownershipTintFill}
+                        fillOpacity={renderData.ownershipTintOpacity}
+                        stroke="none"
+                        pointerEvents="none"
+                        clipPath={renderData.clipPathId ? `url(#${renderData.clipPathId})` : undefined}
+                      />
+                    ) : null}
                     <title>{renderData.province.name}</title>
                   </g>
                 ))}
               </g>
 
-              <g
-                pointerEvents="none"
-                aria-label="terrain overlays"
-                opacity={terrainOverlayOpacity}
-                style={{ transition: 'opacity 160ms ease' }}
-              >
-                {provinceRenderData.map((renderData) => (
-                  <path
-                    key={`terrain-${renderData.province.id}`}
-                    d={renderData.pathData}
-                    fill={`url(#${getTerrainPatternId(renderData.province.terrainType)})`}
-                    stroke="none"
-                  />
-                ))}
-              </g>
+              {isSubProvinceScenario ? (
+                <g
+                  pointerEvents="none"
+                  aria-label="sub-province borders"
+                  opacity={subProvinceBorderOpacity}
+                  style={{ transition: 'opacity 160ms ease' }}
+                >
+                  {provinceRenderData
+                    .filter((renderData) => renderData.isSubProvince)
+                    .map((renderData) => (
+                      <path
+                        key={`sub-border-${renderData.province.id}`}
+                        d={renderData.pathData}
+                        fill="none"
+                        clipPath={renderData.clipPathId ? `url(#${renderData.clipPathId})` : undefined}
+                        stroke={WAR_MAP_THEME.stateInnerBorder}
+                        strokeWidth={0.65}
+                      />
+                    ))}
+                </g>
+              ) : null}
 
               <g pointerEvents="none">
                 {US48_BORDER_PATHS.map((pathData, index) => (
@@ -389,13 +450,17 @@ export function USMap({
                     d={pathData}
                     fill="none"
                     stroke={WAR_MAP_THEME.stateInnerBorder}
-                    strokeWidth={0.9}
+                    strokeWidth={0.85}
                   />
                 ))}
               </g>
 
               <g pointerEvents="none" aria-label="state labels">
                 {provinceRenderData.map((renderData) => {
+                  if (renderData.isSubProvince) {
+                    return null;
+                  }
+
                   const isSmallLabelState = SMALL_LABEL_PROVINCE_IDS.has(renderData.province.id);
                   const labelX = renderData.province.labelX ?? renderData.province.centroidX;
                   const labelY = renderData.province.labelY ?? renderData.province.centroidY;
@@ -432,7 +497,7 @@ export function USMap({
                       >
                         {getProvinceLabel(renderData.province)}
                       </text>
-                      {!isSmallLabelState ? (
+                      {!isSmallLabelState && !renderData.isSubProvince ? (
                         <text
                           x={labelX}
                           y={labelY + (isHighZoom ? 2 : 0)}
@@ -453,6 +518,79 @@ export function USMap({
                     </g>
                   );
                 })}
+
+                {isSubProvinceScenario
+                  ? pilotStateRegions.map((stateRegion) => {
+                      const labelX = stateRegion.labelX ?? stateRegion.centroidX;
+                      const labelY = stateRegion.labelY ?? stateRegion.centroidY;
+
+                      return (
+                        <g key={`pilot-region-${stateRegion.id}`}>
+                          <text
+                            x={labelX}
+                            y={labelY}
+                            textAnchor="middle"
+                            fill={WAR_MAP_THEME.labelFill}
+                            fontSize={12}
+                            fontWeight="800"
+                            letterSpacing={0.8}
+                            stroke={WAR_MAP_THEME.labelStroke}
+                            strokeWidth="3.4"
+                            paintOrder="stroke"
+                            opacity={pilotRegionLabelOpacity}
+                            style={{ transition: 'opacity 140ms ease' }}
+                          >
+                            {stateRegion.labelShort}
+                          </text>
+                          <text
+                            x={labelX}
+                            y={labelY + 1}
+                            textAnchor="middle"
+                            fill="#d9e2ea"
+                            fontSize={10.7}
+                            fontWeight="700"
+                            letterSpacing={0.32}
+                            stroke={WAR_MAP_THEME.labelStroke}
+                            strokeWidth="3"
+                            paintOrder="stroke"
+                            opacity={pilotRegionLabelOpacity * 0.68}
+                            style={{ transition: 'opacity 140ms ease' }}
+                          >
+                            {stateRegion.name}
+                          </text>
+                        </g>
+                      );
+                    })
+                  : null}
+
+                {isSubProvinceScenario
+                  ? provinceRenderData
+                      .filter((renderData) => renderData.isSubProvince)
+                      .map((renderData) => {
+                        const labelX = renderData.province.labelX ?? renderData.province.centroidX;
+                        const labelY = renderData.province.labelY ?? renderData.province.centroidY;
+
+                        return (
+                          <text
+                            key={`sub-label-${renderData.province.id}`}
+                            x={labelX}
+                            y={labelY}
+                            textAnchor="middle"
+                            fill={WAR_MAP_THEME.labelFill}
+                            fontSize={10.4}
+                            fontWeight="800"
+                            letterSpacing={0.55}
+                            stroke={WAR_MAP_THEME.labelStroke}
+                            strokeWidth="3.1"
+                            paintOrder="stroke"
+                            opacity={subProvinceLabelOpacity}
+                            style={{ transition: 'opacity 140ms ease' }}
+                          >
+                            {getProvinceLabel(renderData.province)}
+                          </text>
+                        );
+                      })
+                  : null}
               </g>
 
               <g pointerEvents="none" aria-label="state centers" opacity={centerDotOpacity} style={{ transition: 'opacity 140ms ease' }}>

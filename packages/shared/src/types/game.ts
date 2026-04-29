@@ -39,6 +39,8 @@ export interface Province {
   mapId: string;
   name: string;
   labelShort?: string;
+  parentStateId?: Id;
+  parentStateName?: string;
   shapeKey: string;
   centroidX: number;
   centroidY: number;
@@ -48,6 +50,19 @@ export interface Province {
   isProductionCenter: boolean;
   buildableUnitTypes: UnitTypeCode[];
   baseYield: ResourceAmountMap;
+}
+
+export interface StateRegion {
+  id: Id;
+  mapId: string;
+  name: string;
+  labelShort: string;
+  shapeKey: string;
+  centroidX: number;
+  centroidY: number;
+  labelX?: number;
+  labelY?: number;
+  provinceIds: Id[];
 }
 
 export interface ProvinceState {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   STARTER_WORLD_ID,
+  US48_SUB_WORLD_ID,
   US48_WORLD_ID,
   type MovementOrder,
   type UnitTypeCode,
@@ -17,6 +18,7 @@ const DEFAULT_SCENARIO_ID = US48_WORLD_ID;
 const SCENARIO_OPTIONS = [
   { id: STARTER_WORLD_ID, label: 'Starter 12' },
   { id: US48_WORLD_ID, label: 'US 48' },
+  { id: US48_SUB_WORLD_ID, label: 'US 48 Pilot Sub' },
 ] as const;
 const WORLD_POLL_INTERVAL_MS = 1_000;
 const MAX_RECENT_MESSAGES = 6;

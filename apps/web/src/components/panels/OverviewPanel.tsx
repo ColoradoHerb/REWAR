@@ -459,6 +459,11 @@ export function OverviewPanel({
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                   <div>
                     <div style={{ fontSize: 20, fontWeight: 700 }}>{selectedProvince.name}</div>
+                    {selectedProvince.parentStateName ? (
+                      <div style={{ color: '#cbd5e1', fontSize: 13, marginTop: 4 }}>
+                        Parent State: <strong>{selectedProvince.parentStateName}</strong>
+                      </div>
+                    ) : null}
                     <div style={{ ...subtleTextStyle, marginBottom: 0, marginTop: 4 }}>
                       Owner: {selectedOwner?.name ?? 'Unclaimed'}
                     </div>
@@ -485,7 +490,10 @@ export function OverviewPanel({
                     marginTop: 12,
                   }}
                 >
-                    {[
+                    {[ 
+                      ...(selectedProvince.parentStateName
+                        ? [{ label: 'Parent State', value: selectedProvince.parentStateName }]
+                        : []),
                       { label: 'Terrain', value: formatTerrainLabel(selectedProvince.terrainType) },
                       { label: 'Yield', value: formatYieldPerMinute(selectedProvince.baseYield) || 'None' },
                       { label: 'Production Center', value: selectedProvince.isProductionCenter ? 'Yes' : 'No' },
